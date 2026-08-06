@@ -1,0 +1,15 @@
+node_modules/
+ui/dist/
+*.log
+.DS_Store
+out/
+
+# Personal working notes — reports, drafts. Not part of the published project.
+docs/
+
+# Local captures and exports, plus anything npm pack leaves behind.
+.curlapi/
+*.tgz
+curls.sh
+api-notes.md
+session.json

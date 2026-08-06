@@ -1,0 +1,14 @@
+version: 2
+
+secret:
+  # This repository's subject is captured HTTP credentials, so its tests must
+  # contain credential-shaped strings to assert anything useful about how they
+  # are rendered, redacted and escaped. Every such value is synthetic and says
+  # so in plain text — see the fixture comments in test/curl.test.ts.
+  #
+  # Real credentials must never be committed here. These paths are excluded so
+  # that a finding in this repository means something.
+  ignored-paths:
+    - 'test/curl.test.ts'
+    - 'test/tokens.test.ts'
+    - 'test/flow.test.ts'
