@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /** Everything the tool persists lives under one directory the user can delete. */
@@ -21,6 +21,23 @@ export const EXPORT_DIR = join(HOME, 'exports');
 const here = dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = join(here, '..');
 export const UI_DIST = join(PROJECT_ROOT, 'ui', 'dist');
+
+/**
+ * The version, read from package.json rather than duplicated here.
+ *
+ * A second copy of a version number is a second thing to forget to bump, and the
+ * one people quote in a bug report should be the one npm installed.
+ */
+export const VERSION: string = (() => {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join(PROJECT_ROOT, 'package.json'), 'utf8'),
+    ) as { version?: string };
+    return manifest.version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
 
 export function ensureDirs(): void {
   for (const dir of [HOME, CHROME_PROFILE, EXPORT_DIR]) {

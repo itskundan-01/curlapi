@@ -14,7 +14,11 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
     "jsx": "react-jsx",
-    "types": ["node"]
+    "types": ["node"],
+    // Mirrors the alias in vite.config.ts, so the UI can reach the server's
+    // shared types without counting directories back up to the repository root.
+    "baseUrl": ".",
+    "paths": { "@core/*": ["./src/*"] }
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "ui/**/*.ts", "ui/**/*.tsx"]
 }

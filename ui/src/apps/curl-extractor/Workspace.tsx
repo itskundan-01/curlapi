@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
-  connectLive,
+  CURL_EXTRACTOR_ID,
   type CurlOptions,
   type DocState,
   type SlimRecord,
@@ -12,9 +12,8 @@ import { Collection } from './components/Collection.tsx';
 import { Doc } from './components/Doc.tsx';
 import { SessionPicker } from './components/SessionPicker.tsx';
 import { ConfirmButton } from './components/ConfirmButton.tsx';
-import { formatBytes } from './util.ts';
-
-type Theme = 'light' | 'dark' | null;
+import { useAppMessages } from '../../shell/live.tsx';
+import { formatBytes } from '../../util.ts';
 
 function mergeRecord(records: SlimRecord[], incoming: SlimRecord): SlimRecord[] {
   const index = records.findIndex((record) => record.id === incoming.id);
@@ -24,8 +23,20 @@ function mergeRecord(records: SlimRecord[], incoming: SlimRecord): SlimRecord[] 
   return next;
 }
 
-export function App() {
-  const [status, setStatus] = useState<Status | null>(null);
+/**
+ * The review surface: what was captured, what you kept, what you wrote down.
+ *
+ * Status arrives from the shell's socket rather than being held here, because
+ * the capture it describes now starts and stops independently of this component
+ * being mounted.
+ */
+export function Workspace({
+  status,
+  onNewCapture,
+}: {
+  status: Status;
+  onNewCapture: () => void;
+}) {
   const [records, setRecords] = useState<SlimRecord[]>([]);
   const [doc, setDoc] = useState<DocState>({ folders: [], entries: [] });
   /** Which document new entries are filed under; shared by every Add-to-doc. */
@@ -37,32 +48,20 @@ export function App() {
     shell: 'posix',
     singleLine: false,
   });
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem('curlapi-theme') as Theme) ?? null,
-  );
-  /**
-   * Mirrors status.viewingCapture for the socket handler, which is registered
-   * once and would otherwise close over the value as it was at mount.
-   */
-  const viewingCapture = useRef(true);
+  const [stopping, setStopping] = useState(false);
 
-  useEffect(() => {
-    if (theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem('curlapi-theme', theme);
-    } else {
-      document.documentElement.removeAttribute('data-theme');
-      localStorage.removeItem('curlapi-theme');
-    }
-  }, [theme]);
+  /**
+   * Mirrors status.viewingCapture for the socket handler, which would otherwise
+   * close over the value as it was when the subscription was made.
+   */
+  const viewingCapture = useRef(status.viewingCapture);
+  viewingCapture.current = status.viewingCapture;
 
   // Everything, noise included: the list is slim, so the "show noise" toggle can
   // be a pure client-side filter instead of a round trip.
   const reloadRecords = useCallback(() => {
     void api.requests(true).then(setRecords).catch(() => undefined);
   }, []);
-
-  useEffect(() => reloadRecords(), [reloadRecords]);
 
   const refreshDoc = useCallback(() => {
     void api
@@ -80,52 +79,35 @@ export function App() {
       .catch(() => undefined);
   }, [curlOptions]);
 
+  useEffect(() => reloadRecords(), [reloadRecords]);
   useEffect(() => refreshDoc(), [refreshDoc]);
 
-  // Records and status both arrive over one socket; nothing here polls.
-  useEffect(
-    () =>
-      connectLive({
-        onRecord: (record) =>
-          // A live record belongs to the session being recorded. Dropping it
-          // while an older capture is on screen keeps that view a true picture
-          // of what was captured then.
-          setRecords((prev) =>
-            viewingCapture.current ? mergeRecord(prev, record) : prev,
-          ),
-        onStatus: (next) => {
-          viewingCapture.current = next.viewingCapture;
-          setStatus(next);
-        },
-      }),
-    [],
-  );
+  // Reload the lists whenever the session on screen changes — switching sessions
+  // and starting a new capture both land here.
+  const sessionId = status.sessionId;
+  useEffect(() => {
+    reloadRecords();
+    refreshDoc();
+  }, [sessionId, reloadRecords, refreshDoc]);
 
-  const selectSession = useCallback(
-    async (id: string) => {
-      const next = await api.selectSession(id).catch(() => null);
-      if (!next) return;
-      viewingCapture.current = next.viewingCapture;
-      setStatus(next);
-      // The whole view belongs to the session, its documents included.
-      reloadRecords();
-      refreshDoc();
-    },
-    [reloadRecords, refreshDoc],
-  );
+  // Captured requests are pushed over the shell's socket; nothing here polls.
+  useAppMessages(CURL_EXTRACTOR_ID, (message) => {
+    if (message['type'] !== 'record') return;
+    // A live record belongs to the session being recorded. Dropping it while an
+    // older capture is on screen keeps that view a true picture of what was
+    // captured then.
+    if (!viewingCapture.current) return;
+    setRecords((prev) => mergeRecord(prev, message['record'] as SlimRecord));
+  });
 
-  const removeSession = useCallback(
-    async (id: string) => {
-      const result = await api.deleteSession(id).catch(() => null);
-      if (!result) return;
-      // The server drops back to the live capture, so follow it there.
-      viewingCapture.current = result.status.viewingCapture;
-      setStatus(result.status);
-      reloadRecords();
-      refreshDoc();
-    },
-    [reloadRecords, refreshDoc],
-  );
+  const selectSession = useCallback(async (id: string) => {
+    await api.selectSession(id).catch(() => undefined);
+    // The status push that follows re-runs the loaders above.
+  }, []);
+
+  const removeSession = useCallback(async (id: string) => {
+    await api.deleteSession(id).catch(() => undefined);
+  }, []);
 
   const addToDoc = useCallback(
     async (ids: string[]) => {
@@ -195,14 +177,19 @@ export function App() {
     [kept],
   );
 
-  const togglePause = async () => {
-    if (!status?.capturing) return;
-    const next = await api.pause(!status.paused).catch(() => null);
-    if (next) setStatus({ ...status, paused: next.paused });
+  const togglePause = async (): Promise<void> => {
+    if (!status.capturing) return;
+    await api.pause(!status.paused).catch(() => undefined);
   };
 
-  const dotClass = !status?.capturing ? '' : status.paused ? 'paused' : 'live';
-  const dotLabel = !status?.capturing
+  const stopCapture = async (): Promise<void> => {
+    setStopping(true);
+    await api.stopCapture().catch(() => undefined);
+    setStopping(false);
+  };
+
+  const dotClass = !status.capturing ? '' : status.paused ? 'paused' : 'live';
+  const dotLabel = !status.capturing
     ? 'Not capturing'
     : status.paused
       ? 'Paused'
@@ -212,21 +199,16 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <div className="identity">
-          <div className="brand">
-            <span className={`dot ${dotClass}`} title={dotLabel} />
-            curlapi
-          </div>
-          {status && (
-            <SessionPicker
-              sessions={status.sessions}
-              activeId={status.sessionId}
-              captureId={status.captureSessionId}
-              onSelect={(id) => void selectSession(id)}
-            />
-          )}
+          <span className={`dot ${dotClass}`} title={dotLabel} />
+          <SessionPicker
+            sessions={status.sessions}
+            activeId={status.sessionId}
+            captureId={status.captureSessionId ?? ''}
+            onSelect={(id) => void selectSession(id)}
+          />
           {/* Only for a session that is not being recorded into — the live one
               must not be deletable out from under the recorder. */}
-          {status && !status.viewingCapture && (
+          {!status.viewingCapture && (
             <ConfirmButton
               className="btn small danger"
               confirmLabel="Delete forever?"
@@ -236,7 +218,7 @@ export function App() {
               Delete
             </ConfirmButton>
           )}
-          {status?.primaryHost && status.sessions.length <= 1 && (
+          {status.primaryHost && status.sessions.length <= 1 && (
             <span className="session-host">{status.primaryHost}</span>
           )}
         </div>
@@ -275,35 +257,47 @@ export function App() {
                 <b>{failed.length}</b> failed
               </span>
             )}
-            {status && <span title="Stored on disk">{formatBytes(status.storedBytes)}</span>}
+            <span title="Stored on disk">{formatBytes(status.storedBytes)}</span>
           </div>
 
-          {status?.capturing && status.viewingCapture && (
+          {status.capturing && status.viewingCapture && (
             <button className="btn small" onClick={() => void togglePause()}>
               {status.paused ? 'Resume' : 'Pause'}
             </button>
           )}
 
-          <button
-            className="btn icon"
-            title="Switch theme"
-            aria-label="Switch theme"
-            onClick={() =>
-              setTheme((current) => {
-                const isDark =
-                  current === 'dark' ||
-                  (current === null &&
-                    window.matchMedia('(prefers-color-scheme: dark)').matches);
-                return isDark ? 'light' : 'dark';
-              })
-            }
-          >
-            ◐
-          </button>
+          {status.capturing ? (
+            <ConfirmButton
+              className="btn small danger"
+              confirmLabel="Stop and close Chrome?"
+              title="End the capture and close the browser"
+              disabled={stopping}
+              onConfirm={() => void stopCapture()}
+            >
+              {stopping ? 'Stopping…' : 'Stop'}
+            </ConfirmButton>
+          ) : (
+            <button className="btn small primary" onClick={onNewCapture}>
+              New capture
+            </button>
+          )}
         </div>
       </header>
 
-      {status && !status.viewingCapture && (
+      {!status.capturing && (
+        <div className="warnbar">
+          <strong>Not recording</strong>
+          <span>
+            This is a stored capture. Start a new one to record more traffic.
+          </span>
+          <div className="spacer" />
+          <button className="btn small primary" onClick={onNewCapture}>
+            New capture
+          </button>
+        </div>
+      )}
+
+      {status.capturing && !status.viewingCapture && (
         <div className="warnbar viewing">
           <strong>Viewing a stored capture</strong>
           <span>
@@ -312,14 +306,16 @@ export function App() {
           <div className="spacer" />
           <button
             className="btn small primary"
-            onClick={() => void selectSession(status.captureSessionId)}
+            onClick={() =>
+              status.captureSessionId && void selectSession(status.captureSessionId)
+            }
           >
             Back to live
           </button>
         </div>
       )}
 
-      {status && status.staleTabs.length > 0 && (
+      {status.staleTabs.length > 0 && (
         <div className="warnbar">
           <strong>
             {status.staleTabs.length} tab
@@ -331,10 +327,7 @@ export function App() {
             captured.
           </span>
           <div className="spacer" />
-          <button
-            className="btn small primary"
-            onClick={() => void api.reload().then(() => api.status().then(setStatus))}
-          >
+          <button className="btn small primary" onClick={() => void api.reload()}>
             Reload and capture
           </button>
         </div>
@@ -348,7 +341,7 @@ export function App() {
           onApproveMany={setApprovedMany}
           onClear={() => void clearCaptured()}
           onAddToDoc={(ids) => void addToDoc(ids)}
-          capturing={status?.capturing ?? false}
+          capturing={status.capturing}
           folders={doc.folders}
           activeFolderId={activeFolderId}
           onSelectFolder={setActiveFolderId}

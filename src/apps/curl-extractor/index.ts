@@ -1,69 +1,38 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { WebSocketServer, type WebSocket } from 'ws';
-import type { BodySummary, CurlOptions, RequestRecord, SlimRecord } from '../types.ts';
-import { DEFAULT_CURL_OPTIONS } from '../types.ts';
-import type { Store } from '../store/db.ts';
-import type { Recorder } from '../capture/recorder.ts';
-import { buildCurl } from '../curl/build.ts';
-import { replay } from '../replay/run.ts';
-import { toShellScript } from '../export/script.ts';
-import { toPostmanCollection } from '../export/postman.ts';
-import { toMarkdown } from '../export/doc.ts';
-import { assessReplayability } from '../analyze/replayability.ts';
-import { findDependencies } from '../analyze/links.ts';
-import { serveStatic } from './static.ts';
+/**
+ * The cURL Extractor app: capture a browser session, review it, export it.
+ *
+ * This is the original curlapi, unchanged in what it does and rehomed in what
+ * owns it. The routes below were the whole server; they are now one app's
+ * routes, mounted under `/api/apps/curl-extractor`, and the browser they depend
+ * on is started by {@link CaptureController} when the user asks for it rather
+ * than by the process on the way up.
+ */
+
 import { randomUUID } from 'node:crypto';
-import type { DocEntry } from '../types.ts';
+import type { AppContext, AppInstance, AppModule, RouteRequest } from '../../platform/app.ts';
+import { json, readJsonBody, text } from '../../platform/http.ts';
+import type {
+  BodySummary,
+  CurlOptions,
+  DocEntry,
+  RequestRecord,
+  SlimRecord,
+} from '../../types.ts';
+import { DEFAULT_CURL_OPTIONS } from '../../types.ts';
+import type { Store } from '../../store/db.ts';
+import { buildCurl } from '../../curl/build.ts';
+import { replay } from '../../replay/run.ts';
+import { toShellScript } from '../../export/script.ts';
+import { toPostmanCollection } from '../../export/postman.ts';
+import { toMarkdown } from '../../export/doc.ts';
+import { assessReplayability } from '../../analyze/replayability.ts';
+import { findDependencies } from '../../analyze/links.ts';
+import { CaptureController, type StartOptions } from './controller.ts';
+import { manifest } from './manifest.ts';
 
-export type ServerHandle = {
-  port: number;
-  url: string;
-  broadcast(message: unknown): void;
-  /**
-   * The server is started before the recorder so the recorder can be told to
-   * ignore this server's own origin. This closes that loop afterwards.
-   */
-  setRecorder(recorder: Recorder | null): void;
-  close(): Promise<void>;
-};
-
-type ServerOptions = {
-  store: Store;
-  sessionId: string;
-  port: number;
-  /** Absent when the UI is opened against a stored session with no live capture. */
-  recorder: Recorder | null;
-};
-
-function json(res: ServerResponse, status: number, payload: unknown): void {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(body),
-  });
-  res.end(body);
-}
-
-function text(res: ServerResponse, status: number, body: string, contentType: string): void {
-  res.writeHead(status, {
-    'content-type': contentType,
-    'content-length': Buffer.byteLength(body),
-  });
-  res.end(body);
-}
-
-async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  if (chunks.length === 0) return {};
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-function summarize(body: { encoding: 'text' | 'base64'; data: string; truncated: boolean } | null): BodySummary | null {
+function summarize(
+  body: { encoding: 'text' | 'base64'; data: string; truncated: boolean } | null,
+): BodySummary | null {
   if (!body) return null;
   return { encoding: body.encoding, truncated: body.truncated, size: body.data.length };
 }
@@ -100,35 +69,104 @@ function curlOptionsFrom(params: URLSearchParams): CurlOptions {
   };
 }
 
-export async function startServer(options: ServerOptions): Promise<ServerHandle> {
-  const { store } = options;
-  let recorder = options.recorder;
-  const clients = new Set<WebSocket>();
+/**
+ * Rejects anything that is not an http(s) URL.
+ *
+ * The target now arrives from a form rather than from the user's own shell, so
+ * it is worth refusing `file:` and `javascript:` here instead of handing them
+ * to Page.navigate and finding out what happens.
+ */
+function normalizeTarget(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  // A bare host is what people type; assume https rather than failing on it.
+  const candidate = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
 
-  /** Where the recorder writes. Fixed for the life of the process. */
-  const captureSessionId = options.sessionId;
+export class CurlExtractorApp implements AppInstance {
+  #store: Store;
+  #context: AppContext;
+  #controller: CaptureController;
   /**
-   * What the UI is looking at, which is not always what is being recorded.
+   * The session the UI is looking at, when the user has picked one explicitly.
    *
-   * Every run of `curlapi start` opens a new session, so without this the
-   * previous capture becomes unreachable the moment the next one begins — it is
-   * still on disk, but nothing can show it, which is indistinguishable from
-   * having lost it.
+   * Null means "follow the capture", which is what a fresh page load wants.
+   * Without this a stored capture would become unreachable the moment the next
+   * one begins — still on disk, but with nothing able to show it, which is
+   * indistinguishable from having lost it.
    */
-  let sessionId = options.sessionId;
+  #viewingSessionId: string | null = null;
 
-  const statusPayload = () => {
-    const session = store.getSession(sessionId);
-    const all = store.listRequests(sessionId, { includeNoise: true });
+  constructor(context: AppContext) {
+    this.#context = context;
+    this.#store = context.store;
+    this.#controller = new CaptureController({
+      store: context.store,
+      serverUrl: context.serverUrl,
+      onRecord: (record) => context.broadcast({ type: 'record', record: slim(record) }),
+      onStateChange: () => {
+        // A new capture pulls the view back to itself; the user can step away
+        // again with the session picker.
+        if (this.#controller.running) this.#viewingSessionId = null;
+        context.pushStatus();
+      },
+    });
+  }
+
+  /** Exposed so the CLI can start a capture the moment the shell is up. */
+  get capture(): CaptureController {
+    return this.#controller;
+  }
+
+  /** Opens the workspace on a stored session, for `curlapi ui --session ID`. */
+  viewSession(id: string): boolean {
+    if (!this.#store.getSession(id)) return false;
+    this.#viewingSessionId = id;
+    return true;
+  }
+
+  /** The session on screen: the user's pick, the live capture, or the newest. */
+  get #sessionId(): string {
+    return (
+      this.#viewingSessionId ??
+      this.#controller.sessionId ??
+      this.#store.listSessions()[0]?.id ??
+      ''
+    );
+  }
+
+  status(): unknown {
+    const store = this.#store;
+    const sessionId = this.#sessionId;
+    const captureSessionId = this.#controller.sessionId;
+    const recorder = this.#controller.recorder;
+
+    const all = sessionId ? store.listRequests(sessionId, { includeNoise: true }) : [];
     const kept = all.filter((record) => record.verdict.keep);
+    const session = sessionId ? store.getSession(sessionId) : null;
+
     return {
+      capture: {
+        state: this.#controller.state,
+        targetUrl: this.#controller.targetUrl,
+        browserName: this.#controller.browserName,
+        error: this.#controller.error,
+        lastSummary: this.#controller.lastSummary,
+      },
       sessionId,
       captureSessionId,
       /** True while viewing the session the recorder is writing into. */
-      viewingCapture: sessionId === captureSessionId,
+      viewingCapture: captureSessionId !== null && sessionId === captureSessionId,
       session,
       sessions: store.listSessionSummaries(),
-      capturing: recorder !== null,
+      capturing: this.#controller.running,
       paused: recorder?.paused ?? false,
       primaryHost: recorder?.primaryHost ?? session?.primaryHost ?? null,
       staleTabs: recorder?.staleTabs ?? [],
@@ -138,86 +176,118 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         approved: all.filter((record) => record.approved).length,
         // Counted over kept requests only: a filtered-out tracker pixel 404ing
         // is not something anyone is trying to debug.
-        failed: kept.filter(
-          (record) => record.error !== null || (record.status ?? 0) >= 400,
-        ).length,
+        failed: kept.filter((record) => record.error !== null || (record.status ?? 0) >= 400)
+          .length,
       },
-      storedBytes: store.sessionBytes(sessionId),
+      storedBytes: sessionId ? store.sessionBytes(sessionId) : 0,
     };
-  };
+  }
 
-  const server = createServer((req, res) => {
-    void handle(req, res).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!res.headersSent) json(res, 500, { error: message });
-      else res.end();
-    });
-  });
+  async dispose(): Promise<void> {
+    await this.#controller.stop();
+  }
 
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    const path = url.pathname;
+  async handle(request: RouteRequest): Promise<boolean> {
+    const { path, method, url, req, res } = request;
+    const store = this.#store;
+    const sessionId = this.#sessionId;
 
-    if (!path.startsWith('/api/')) {
-      serveStatic(path, res);
-      return;
+    // --- capture lifecycle ---------------------------------------------------
+
+    if (path === '/capture/start' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const raw = typeof body['url'] === 'string' ? body['url'] : '';
+      const target = raw.length > 0 ? normalizeTarget(raw) : null;
+
+      // An unusable URL has to fail before Chrome is launched, not after.
+      if (raw.length > 0 && !target) {
+        json(res, 400, { error: `"${raw}" is not an http or https URL` });
+        return true;
+      }
+
+      const options: StartOptions = {
+        url: target ?? undefined,
+        label: typeof body['label'] === 'string' ? body['label'] : undefined,
+        headless: body['headless'] === true,
+        resume: body['resume'] === true,
+        keep: body['keep'] === true,
+        attachPort: typeof body['attachPort'] === 'number' ? body['attachPort'] : undefined,
+      };
+
+      try {
+        const started = await this.#controller.start(options);
+        json(res, 200, { ok: true, sessionId: started.sessionId, status: this.status() });
+      } catch (err) {
+        json(res, 500, {
+          error: err instanceof Error ? err.message : String(err),
+          status: this.status(),
+        });
+      }
+      return true;
+    }
+
+    if (path === '/capture/stop' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const summary = await this.#controller.stop({ keep: body['keep'] === true });
+      json(res, 200, { ok: true, summary, status: this.status() });
+      return true;
     }
 
     // --- session-level reads -------------------------------------------------
 
-    if (path === '/api/status') {
-      json(res, 200, statusPayload());
-      return;
+    if (path === '/status') {
+      json(res, 200, this.status());
+      return true;
     }
 
-    if (path === '/api/sessions') {
+    if (path === '/sessions' && method === 'GET') {
       json(res, 200, store.listSessionSummaries());
-      return;
+      return true;
     }
 
     // Switching what the UI shows. Recording is unaffected — it keeps writing
     // into the capture session, so browsing an old one never costs live traffic.
-    if (path === '/api/session' && req.method === 'POST') {
+    if (path === '/session' && method === 'POST') {
       const body = await readJsonBody(req);
       const next = typeof body['id'] === 'string' ? store.getSession(body['id']) : null;
       if (!next) {
         json(res, 404, { error: 'no such session' });
-        return;
+        return true;
       }
-      sessionId = next.id;
-      broadcast({ type: 'status', status: statusPayload() });
-      json(res, 200, statusPayload());
-      return;
+      this.#viewingSessionId = next.id;
+      this.#context.pushStatus();
+      json(res, 200, this.status());
+      return true;
     }
 
-    const sessionMatch = /^\/api\/sessions\/(.+)$/.exec(path);
-    if (sessionMatch && req.method === 'DELETE') {
+    const sessionMatch = /^\/sessions\/(.+)$/.exec(path);
+    if (sessionMatch && method === 'DELETE') {
       const id = decodeURIComponent(sessionMatch[1]);
-      if (id === captureSessionId) {
+      if (id === this.#controller.sessionId) {
         json(res, 409, { error: 'cannot delete the session being recorded' });
-        return;
+        return true;
       }
       store.deleteSession(id);
-      // Fall back to the live capture if the deleted one was on screen.
-      if (sessionId === id) sessionId = captureSessionId;
-      json(res, 200, { ok: true, status: statusPayload() });
-      return;
+      // Fall back to whatever the default view resolves to now.
+      if (this.#viewingSessionId === id) this.#viewingSessionId = null;
+      json(res, 200, { ok: true, status: this.status() });
+      return true;
     }
 
-    if (path === '/api/requests') {
+    if (path === '/requests') {
       const includeNoise = url.searchParams.get('noise') === '1';
       json(res, 200, store.listRequests(sessionId, { includeNoise }).map(slim));
-      return;
+      return true;
     }
 
-    if (path === '/api/approved') {
+    if (path === '/approved') {
       json(res, 200, store.listApproved(sessionId).map(slim));
-      return;
+      return true;
     }
 
     // Rendering the collection needs every approved command at once; one round
     // trip per card would make the options toggles feel sluggish.
-    if (path === '/api/curls') {
+    if (path === '/curls') {
       const curlOptions = curlOptionsFrom(url.searchParams);
       json(
         res,
@@ -227,14 +297,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           curl: buildCurl(record, curlOptions),
         })),
       );
-      return;
+      return true;
     }
 
     // --- per-request operations ---------------------------------------------
 
-    const requestMatch = /^\/api\/requests\/(.+?)(?:\/(curl|replay|approve|title))?$/.exec(
-      path,
-    );
+    const requestMatch = /^\/requests\/(.+?)(?:\/(curl|replay|approve|title))?$/.exec(path);
     if (requestMatch) {
       const id = decodeURIComponent(requestMatch[1]);
       const action = requestMatch[2];
@@ -243,34 +311,39 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       const record = store.getRequest(id) ?? store.getDocSnapshot(id);
       if (!record) {
         json(res, 404, { error: `no request ${id}` });
-        return;
+        return true;
       }
 
       if (action === 'curl') {
-        text(res, 200, buildCurl(record, curlOptionsFrom(url.searchParams)), 'text/plain; charset=utf-8');
-        return;
+        text(
+          res,
+          200,
+          buildCurl(record, curlOptionsFrom(url.searchParams)),
+          'text/plain; charset=utf-8',
+        );
+        return true;
       }
 
-      if (action === 'replay' && req.method === 'POST') {
+      if (action === 'replay' && method === 'POST') {
         json(res, 200, await replay(record));
-        return;
+        return true;
       }
 
-      if (action === 'approve' && req.method === 'POST') {
+      if (action === 'approve' && method === 'POST') {
         const body = await readJsonBody(req);
         store.setApproved(id, body['approved'] !== false);
         const updated = store.getRequest(id);
         json(res, 200, updated ? slim(updated) : null);
-        return;
+        return true;
       }
 
-      if (action === 'title' && req.method === 'POST') {
+      if (action === 'title' && method === 'POST') {
         const body = await readJsonBody(req);
         const title = typeof body['title'] === 'string' ? body['title'].trim() : '';
         store.setTitle(id, title.length > 0 ? title : null);
         const updated = store.getRequest(id);
         json(res, 200, updated ? slim(updated) : null);
-        return;
+        return true;
       }
 
       if (!action) {
@@ -281,21 +354,21 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           replayability: assessReplayability(record),
           dependencies: findDependencies(record, store.listRequests(sessionId)),
         });
-        return;
+        return true;
       }
     }
 
     // --- bulk operations -----------------------------------------------------
 
-    if (path === '/api/approve-many' && req.method === 'POST') {
+    if (path === '/approve-many' && method === 'POST') {
       const body = await readJsonBody(req);
       const ids = Array.isArray(body['ids']) ? (body['ids'] as string[]) : [];
       store.setApprovedMany(ids, body['approved'] !== false);
       json(res, 200, { ok: true, count: ids.length });
-      return;
+      return true;
     }
 
-    if (path === '/api/clear' && req.method === 'POST') {
+    if (path === '/clear' && method === 'POST') {
       // The document is intentionally left alone: entries fall back to their
       // snapshotted command, so clearing a noisy list never costs notes.
       const removed = store.clearRequests(sessionId);
@@ -303,9 +376,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       // continuing from wherever the cleared list happened to end. Only when the
       // live session is the one being cleared — resetting it while looking at an
       // old capture would renumber traffic the user can't even see.
-      if (sessionId === captureSessionId) recorder?.resetSequence();
+      if (sessionId === this.#controller.sessionId) this.#controller.recorder?.resetSequence();
       json(res, 200, { ok: true, removed });
-      return;
+      return true;
     }
 
     // --- document ------------------------------------------------------------
@@ -327,8 +400,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       return record ? buildCurl(record, curlOptions) : entry.curlSnapshot;
     };
 
-    if (path === '/api/doc') {
-      if (req.method === 'POST') {
+    if (path === '/doc') {
+      if (method === 'POST') {
         const body = await readJsonBody(req);
         const requestIds = Array.isArray(body['requestIds'])
           ? (body['requestIds'] as string[])
@@ -357,7 +430,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             status: null,
           });
           json(res, 200, [entry]);
-          return;
+          return true;
         }
 
         const added: DocEntry[] = [];
@@ -383,7 +456,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           );
         }
         json(res, 200, added);
-        return;
+        return true;
       }
 
       const curlOptions = curlOptionsFrom(url.searchParams);
@@ -397,62 +470,62 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           return { ...rest, curl: curlForEntry(entry, curlOptions) };
         }),
       });
-      return;
+      return true;
     }
 
-    if (path === '/api/doc/order' && req.method === 'POST') {
+    if (path === '/doc/order' && method === 'POST') {
       const body = await readJsonBody(req);
       const ids = Array.isArray(body['ids']) ? (body['ids'] as string[]) : [];
       store.reorderDocEntries(ids);
       json(res, 200, { ok: true });
-      return;
+      return true;
     }
 
-    // --- document folders ------------------------------------------------------
+    // --- document folders ----------------------------------------------------
 
-    if (path === '/api/folders') {
-      if (req.method === 'POST') {
+    if (path === '/folders') {
+      if (method === 'POST') {
         const body = await readJsonBody(req);
         const name = typeof body['name'] === 'string' ? body['name'] : '';
         json(res, 200, store.createFolder(sessionId, name));
-        return;
+        return true;
       }
       json(res, 200, store.listFolders(sessionId));
-      return;
+      return true;
     }
 
-    if (path === '/api/folders/order' && req.method === 'POST') {
+    if (path === '/folders/order' && method === 'POST') {
       const body = await readJsonBody(req);
       const ids = Array.isArray(body['ids']) ? (body['ids'] as string[]) : [];
       store.reorderFolders(ids);
       json(res, 200, { ok: true });
-      return;
+      return true;
     }
 
-    const folderMatch = /^\/api\/folders\/(.+)$/.exec(path);
+    const folderMatch = /^\/folders\/(.+)$/.exec(path);
     if (folderMatch) {
       const id = decodeURIComponent(folderMatch[1]);
-      if (req.method === 'DELETE') {
+      if (method === 'DELETE') {
         json(res, 200, { ok: true, removed: store.deleteFolder(id) });
-        return;
+        return true;
       }
-      if (req.method === 'POST') {
+      if (method === 'POST') {
         const body = await readJsonBody(req);
         if (typeof body['name'] === 'string') store.renameFolder(id, body['name']);
         json(res, 200, { ok: true });
-        return;
+        return true;
       }
     }
 
-    const docMatch = /^\/api\/doc\/(.+)$/.exec(path);
+    const docMatch = /^\/doc\/(.+)$/.exec(path);
     if (docMatch) {
       const id = decodeURIComponent(docMatch[1]);
-      if (req.method === 'DELETE') {
+      if (method === 'DELETE') {
         store.deleteDocEntry(id);
         json(res, 200, { ok: true });
-        return;
+        return true;
       }
-      if (req.method === 'POST') {
+      if (method === 'POST') {
         const body = await readJsonBody(req);
         store.updateDocEntry(id, {
           title: typeof body['title'] === 'string' ? body['title'] : undefined,
@@ -462,44 +535,47 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           store.moveDocEntry(id, body['folderId']);
         }
         json(res, 200, { ok: true });
-        return;
+        return true;
       }
     }
 
     // --- collection ordering -------------------------------------------------
 
-    if (path === '/api/order' && req.method === 'POST') {
+    if (path === '/order' && method === 'POST') {
       const body = await readJsonBody(req);
       const ids = Array.isArray(body['ids']) ? (body['ids'] as string[]) : [];
       store.setOrder(ids);
       json(res, 200, { ok: true });
-      return;
+      return true;
     }
 
     // --- capture control -----------------------------------------------------
 
-    if (path === '/api/reload' && req.method === 'POST') {
-      const reloaded = (await recorder?.reloadPages()) ?? 0;
+    if (path === '/reload' && method === 'POST') {
+      const reloaded = (await this.#controller.recorder?.reloadPages()) ?? 0;
+      // The stale-tab warning is gone now; pushing means it disappears on the
+      // click rather than on the next two-second tick.
+      this.#context.pushStatus();
       json(res, 200, { ok: true, reloaded });
-      return;
+      return true;
     }
 
-    if (path === '/api/pause' && req.method === 'POST') {
+    if (path === '/pause' && method === 'POST') {
       const body = await readJsonBody(req);
-      const paused = body['paused'] === true;
-      recorder?.setPaused(paused);
-      json(res, 200, { paused: recorder?.paused ?? false });
-      return;
+      this.#controller.recorder?.setPaused(body['paused'] === true);
+      this.#context.pushStatus();
+      json(res, 200, { paused: this.#controller.recorder?.paused ?? false });
+      return true;
     }
 
     // --- exports -------------------------------------------------------------
 
-    const exportMatch = /^\/api\/export\/(script|postman|json|doc)$/.exec(path);
+    const exportMatch = /^\/export\/(script|postman|json|doc)$/.exec(path);
     if (exportMatch) {
       const session = store.getSession(sessionId);
       if (!session) {
         json(res, 404, { error: 'session not found' });
-        return;
+        return true;
       }
 
       if (exportMatch[1] === 'doc') {
@@ -521,7 +597,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           toMarkdown(entries, session, (entry) => curlForEntry(entry, curlOptions), folders),
           'text/markdown; charset=utf-8',
         );
-        return;
+        return true;
       }
 
       const approved = store.listApproved(sessionId);
@@ -531,74 +607,39 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       switch (exportMatch[1]) {
         case 'script':
           res.setHeader('content-disposition', 'attachment; filename="curls.sh"');
-          text(res, 200, toShellScript(records, session, curlOptions), 'text/x-shellscript; charset=utf-8');
-          return;
+          text(
+            res,
+            200,
+            toShellScript(records, session, curlOptions),
+            'text/x-shellscript; charset=utf-8',
+          );
+          return true;
         case 'postman':
           res.setHeader('content-disposition', 'attachment; filename="collection.json"');
-          text(res, 200, toPostmanCollection(records, session, curlOptions), 'application/json; charset=utf-8');
-          return;
+          text(
+            res,
+            200,
+            toPostmanCollection(records, session, curlOptions),
+            'application/json; charset=utf-8',
+          );
+          return true;
         default:
           res.setHeader('content-disposition', 'attachment; filename="session.json"');
-          text(res, 200, JSON.stringify({ session, records }, null, 2), 'application/json; charset=utf-8');
-          return;
+          text(
+            res,
+            200,
+            JSON.stringify({ session, records }, null, 2),
+            'application/json; charset=utf-8',
+          );
+          return true;
       }
     }
 
-    json(res, 404, { error: `no route for ${req.method} ${path}` });
+    return false;
   }
-
-  const broadcast = (message: unknown): void => {
-    const payload = JSON.stringify(message);
-    for (const client of clients) {
-      if (client.readyState === 1) client.send(payload);
-    }
-  };
-
-  const wss = new WebSocketServer({ server, path: '/ws' });
-  wss.on('connection', (socket) => {
-    clients.add(socket);
-    socket.send(JSON.stringify({ type: 'status', status: statusPayload() }));
-    socket.on('close', () => clients.delete(socket));
-    socket.on('error', () => clients.delete(socket));
-  });
-
-  /**
-   * Status is pushed rather than polled. The review UI is normally open in the
-   * very browser being recorded, so a polling loop would be a request every few
-   * seconds against the tool's own endpoint — traffic about ourselves, in a
-   * window whose whole purpose is watching someone else's traffic.
-   */
-  const statusTimer = setInterval(() => {
-    if (clients.size === 0) return;
-    broadcast({ type: 'status', status: statusPayload() });
-  }, 2000);
-  statusTimer.unref();
-
-  await new Promise<void>((resolve) => {
-    // Bind to loopback only: the capture holds live credentials and has no
-    // business being reachable from the network.
-    server.listen(options.port, '127.0.0.1', resolve);
-  });
-
-  const address = server.address();
-  const port = typeof address === 'object' && address ? address.port : options.port;
-
-  return {
-    port,
-    url: `http://127.0.0.1:${port}`,
-    setRecorder(next: Recorder | null) {
-      recorder = next;
-    },
-    broadcast,
-    async close() {
-      clearInterval(statusTimer);
-      for (const client of clients) client.close();
-      wss.close();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    },
-  };
 }
 
-export function recordMessage(record: RequestRecord): unknown {
-  return { type: 'record', record: slim(record) };
-}
+export const curlExtractorApp: AppModule = {
+  manifest,
+  create: (context) => new CurlExtractorApp(context),
+};

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api, type CurlOptions, type ReplayResult, type RequestDetail, type RequestRecord } from '../api.ts';
-import { copyText, formatBytes, formatMs, prettyJson, statusClass } from '../util.ts';
+import { copyText, formatBytes, formatMs, prettyJson, statusClass } from '../../../util.ts';
 import { CopyButton } from './CopyButton.tsx';
 import { RunResult } from './RunResult.tsx';
 import { TokenChips, ShelfLifeNote } from './Tokens.tsx';
 import { Flow } from './Flow.tsx';
-import type { HeaderPair } from '../../../src/types.ts';
+import type { HeaderPair } from '@core/types.ts';
 
 function Headers({ pairs }: { pairs: HeaderPair[] }) {
   if (pairs.length === 0) return <p className="hint">None recorded.</p>;

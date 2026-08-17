@@ -13,3 +13,7 @@ docs/
 curls.sh
 api-notes.md
 session.json
+
+# Handed-over API documents used for parser development. They carry real keys
+# and credentials, so they stay local.
+Doc samples/

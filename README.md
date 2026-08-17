@@ -1,32 +1,52 @@
 # curlapi
 
-**Capture a browser session's real API calls, drop the noise, and turn what's left into working curl commands.**
+**A local workspace of small API utilities.** Capture a browser session's real
+API calls as working curl commands, or turn a handed-over API document into
+runnable requests — without either one leaving your machine.
 
 [![CI](https://github.com/itskundan-01/curlapi/actions/workflows/ci.yml/badge.svg)](https://github.com/itskundan-01/curlapi/actions/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%E2%89%A524-3c873a)](https://nodejs.org)
+[![Status](https://img.shields.io/badge/status-beta-b45309)](#beta)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Built for reverse-engineering a private API so you can write a wrapper around it:
-use the site normally, see exactly which endpoints it hit, and get a command you
-can paste into Postman — or run right there to check it still works.
-
 ```
-Browse the site  ──▶  curlapi records only the API calls  ──▶  tick the ones you want
-                                                                      │
-        curls.sh · Postman · Markdown notes  ◀──  runnable curl, named and numbered
+                        ┌─ ⚡ cURL Extractor ──┐
+ browse a site  ────────▶  only the API calls  ├──▶  run · copy · Postman · notes
+                        └──────────────────────┘
+                        ┌─ 📄 Doc → Requests ──┐
+ drop in a document ────▶  every endpoint in it ├──▶  run · copy · Postman · notes
+                        └──────────────────────┘
 ```
 
 ---
 
-> **New here?** [**SOP.md**](SOP.md) is a step-by-step walkthrough — setup, your
-> first capture, and the day-to-day loop. Start there.
+> ## Beta
+>
+> Both utilities work and are in daily use, but the shape of things may still
+> change. Two things worth knowing before you rely on it:
+>
+> - **Check what a document import produced** before you act on it. The parser
+>   handles the layouts in [Doc → Requests](#doc--requests) well, but documents
+>   are written by people and a new one may be read wrongly. Every endpoint shows
+>   which layout it came from and how confident that reading was.
+> - **Generated commands are a starting point.** They reproduce what was captured
+>   or documented; tokens expire and sample values go stale.
+>
+> Your data is not at risk either way — everything is stored locally, and nothing
+> is ever uploaded. Bug reports are very welcome.
+
+> **New here?** [**SOP.md**](SOP.md) is a step-by-step walkthrough — setup, and
+> the day-to-day loop for each utility. Start there.
 
 ## Contents
 
-- [Why not just export a HAR](#why-not-just-export-a-har)
+- [What this replaces](#what-this-replaces)
 - [Requirements](#requirements)
 - [Install](#install)
 - [Quick start](#quick-start)
+- [Utilities](#utilities)
+  - [cURL Extractor](#curl-extractor)
+  - [Doc → Requests](#doc--requests)
 - [Commands](#commands)
 - [The review UI](#the-review-ui)
 - [What it tells you that DevTools doesn't](#what-it-tells-you-that-devtools-doesnt)
@@ -39,16 +59,22 @@ Browse the site  ──▶  curlapi records only the API calls  ──▶  tick 
 
 ---
 
-## Why not just export a HAR
+## What this replaces
 
-A HAR embeds a response body for every request, including images, JS bundles and
-source maps, which is how one page refresh becomes 22 MB. Of the 200–400 requests
-a modern SPA fires, maybe 10–20 are real API calls, and DevTools gives you no way
-to tell which of them belonged to the button you just clicked. Then it's
-right-click → Copy as cURL, one at a time.
+Two jobs that are otherwise done by hand, one per utility.
 
-curlapi filters at capture time — a response body that is never fetched costs
-nothing — so a session that produced a 22 MB HAR lands well under 1 MB.
+**Reverse-engineering an API from the browser.** A HAR embeds a response body for
+every request, including images, JS bundles and source maps, which is how one page
+refresh becomes 22 MB. Of the 200–400 requests a modern SPA fires, maybe 10–20 are
+real API calls, and DevTools gives you no way to tell which belonged to the button
+you just clicked. Then it's right-click → Copy as cURL, one at a time. curlapi
+filters at capture time — a response body that is never fetched costs nothing — so
+a session that produced a 22 MB HAR lands well under 1 MB.
+
+**Testing endpoints somebody sent you in a Word file.** Read the document, retype
+each endpoint into Postman with its headers and body, run them one at a time to
+find out which work, and do it again when the document is revised. An afternoon,
+per document, repeatedly. curlapi reads the document instead.
 
 ## Requirements
 
@@ -83,27 +109,134 @@ npm link
 ## Quick start
 
 ```bash
-node src/cli.ts start https://example.com
+node src/cli.ts
 # or, after `npm link`:
-curlapi start https://example.com
+curlapi
 ```
 
-Chrome opens. **Log in and use the site exactly as you normally would**; the review
-UI at <http://127.0.0.1:7317> fills in live. Tick the requests worth keeping,
+The workspace opens at <http://127.0.0.1:7317> on a dashboard of utilities.
+**Nothing is launched yet** — no browser, no capture. Open **cURL Extractor**,
+type the address of the site you are targeting, and confirm.
+
+*Then* Chrome opens on that address. **Log in and use the site exactly as you
+normally would**; the review UI fills in live. Tick the requests worth keeping,
 switch to **Collection**, and you get them numbered, named, with the full curl and
-a **Run** button. Press Ctrl-C when finished — the session is saved.
+a **Run** button. **Stop** ends the capture and keeps what you selected, without
+closing the workspace — so the next capture is another click, not another run.
 
 Everything lives under `~/.curlapi`.
 
 For the same thing broken into numbered steps, with the UI actions spelled out,
 see [SOP.md](SOP.md).
 
+### Skipping the launch screen
+
+If you already know the target, the old one-shot form still works and starts the
+capture as the workspace comes up:
+
+```bash
+curlapi start https://example.com
+```
+
+## Utilities
+
+| | | |
+|---|---|---|
+| ⚡ | **[cURL Extractor](#curl-extractor)** | Capture a site's real API calls as working curl commands. |
+| 📄 | **[Doc → Requests](#doc--requests)** | Turn a handed-over API document into runnable requests. |
+
+Each utility is a module under `src/apps/`, mounted by the shell at
+`/api/apps/<id>` and listed on the dashboard from its own manifest. Adding one
+means writing the module and adding a line to `src/platform/registry.ts` —
+nothing in the shell, the CLI or the router needs to know it exists.
+
+### cURL Extractor
+
+Open it, type the address of the site you are targeting, and confirm. *Then*
+Chrome opens on that address, signed in to its own profile. Browse as you
+normally would; every API call behind what you did is captured with the headers
+that actually went on the wire, cookies included.
+
+The workspace has three tabs — **Live**, **Collection** and **Doc** — described
+under [The review UI](#the-review-ui). **Stop** ends the capture and closes the
+browser without closing the workspace, so the next capture is a click rather than
+another run.
+
+### Doc → Requests
+
+Drop in the Word file, PDF or Markdown a department sends over, and every
+endpoint in it comes back as a request you can read, run and export — instead of
+retyping each one into Postman to find out whether it works.
+
+It reads the layouts these documents actually use, and more than one per file:
+
+- **Spec tables** — `HTTP Method` / `URL` / `Request Header` / `Request Body` /
+  `Response` down the left, including the form that splits the URL row across
+  *Staging* and *Production* columns.
+- **Labelled prose** — `Method :- GET`, the URL on a line of its own, then
+  `X-Api-Key - …` pairs under a "pass these in the header" sentence.
+- **Pasted curl commands**, in the state a word processor leaves them: curly
+  quotes, `--` eaten off the front of `--header` and `--data`, and the command
+  broken across paragraphs with a `Request Parameter:` label in the middle.
+- **Postman collections and OpenAPI descriptions**, imported directly.
+
+It also keeps what the document says *about* each endpoint — the field tables
+(sorting them into what you send and what comes back), the response codes, and
+the response the document claims, which is shown beside the real one after a run.
+
+The endpoint list sits on the left, and the selected endpoint opens as **two
+panes side by side** — the request you can edit and run, and what the document
+said about it. That pairing is the point: choosing what to put in a field means
+reading the field table, and judging a run means comparing it against the
+documented response.
+
+**cURL is the first thing you see**, because the command *is* the request — one
+view holding the URL, every header and the body, where a tabbed editor shows a
+third of it at a time. Every line is clickable: the URL opens the parameters, a
+header line opens the header table with that row focused, the payload opens the
+body. Reading it and fixing it are the same gesture.
+
+Behind that it is a full editor: a method dropdown, the URL, query parameters
+and headers as rows you can add, edit, remove or **switch off**, and a body
+editor with JSON formatting that names the parse error. A pasted curl command
+replaces the request outright, so anything from Chrome's *Copy as cURL* or a
+colleague's message lands here intact. Edits are stored separately from the
+document's own reading, so **Reset to document** always works.
+
+Tick endpoints in the list to **copy a Postman collection straight to the
+clipboard** — Postman's Import takes raw text, so there is no file to save, find
+and upload — or to copy them as curl commands. Exports follow the selection too.
+
+Commands are escaped for **your** shell: PowerShell on Windows, POSIX
+elsewhere, detected in the browser so it is right even when the workspace is
+running on someone else's machine. The override is still there for when you are
+copying a command for a colleague.
+
+Path placeholders like `{bookingId}` and credentials found in headers become
+**shared values** you fill in once and have applied everywhere. Running is
+blocked while a placeholder is unfilled, because a 404 from a URL still
+containing `{bookingId}` looks like a broken endpoint and isn't.
+
+Exports: a **Postman collection** with folders, path variables, saved response
+examples and field descriptions — and with credentials lifted into collection
+variables so the file can be shared — plus a shell script and a Markdown
+summary.
+
+> These documents usually arrive carrying live API keys. Treat what comes out of
+> them the same way, and prefer the default export that keeps credentials as
+> variables.
+
+Each utility is a module under `src/apps/`, mounted by the shell at
+`/api/apps/<id>` and listed on the dashboard from its own manifest. Adding one
+means writing the module and adding a line to `src/platform/registry.ts`.
+
 ## Commands
 
 ```
-curlapi start [url]          Launch the browser, capture, and open the review UI
-curlapi attach [--port N]    Attach to a browser you started yourself
-curlapi ui [--session ID]    Review a stored session without capturing
+curlapi                      Open the dashboard. Nothing launches until you pick an app
+curlapi start [url]          Open the dashboard and begin a capture right away
+curlapi attach [--port N]    Capture from a browser you started yourself
+curlapi ui [--session ID]    Open the workspace on a stored session, without recording
 curlapi ls                   List stored sessions
 curlapi prune                Discard captures nobody documented or approved
 curlapi export <format>      script | postman | json | doc
@@ -123,10 +256,12 @@ curlapi config               Write the default filter rules so you can edit them
 | `--redact` | Replace credentials with `{{placeholders}}` |
 | `--shell SHELL` | `posix` (default) or `powershell` |
 | `--headless` | Run the browser without a window |
+| `--no-open` | Do not open a browser window at the workspace |
 
 ## The review UI
 
-Three tabs, at `http://127.0.0.1:7317`.
+The cURL Extractor's workspace: three tabs, inside the shell at
+`http://127.0.0.1:7317/apps/curl-extractor`.
 
 **Live** — the capture as it happens, newest first. Tick rows to select them;
 shift-click takes a range, and the header checkbox takes everything shown.
@@ -203,6 +338,8 @@ showing you the failure.
 
 ## Exports
 
+From a capture, on the command line:
+
 ```bash
 curlapi export script     # curls.sh — serial-numbered, one commented command per endpoint
 curlapi export postman    # Postman collection v2.1, captured responses as examples
@@ -212,6 +349,14 @@ curlapi export json       # session.json — the full record, re-importable
 
 Add `--redact` to swap credentials for placeholders (and lift them into Postman
 variables) before sharing any of these.
+
+From a document import, in the workspace: the **Export** menu gives the same
+Postman collection, shell script and Markdown. Credentials become collection
+variables by default there, so the file can be sent to somebody as-is; there is a
+separate "credentials inline" option for your own use.
+
+Tick endpoints in the list first and everything — exports and the clipboard
+copies — narrows to just those.
 
 ## Troubleshooting
 
@@ -236,6 +381,20 @@ visible under *Show filtered-out*. Run `curlapi config` and edit
 `Unknown file extension ".ts"`. Install Node 24+ from
 [nodejs.org](https://nodejs.org) or `nvm install 24`.
 
+**A document imported with too many endpoints, or the wrong names.** Each
+endpoint shows the layout it was read as and how confident that reading was.
+Please [open an issue](https://github.com/itskundan-01/curlapi/issues) with the
+*shape* of the document — the headings and how the requests are laid out, with
+your hosts and keys removed. That is what the parser is built against.
+
+**A document imported with nothing.** A scanned PDF has no text to find, only an
+image of it; the import says so. Copy the text out and paste it in as Markdown,
+or use the original Word file if there is one.
+
+**A request 404s with `{bookingId}` still in the URL.** It won't — the run is
+refused while a placeholder is unfilled. Fill it in under **Shared values**,
+which applies it to every endpoint at once.
+
 ## Security and privacy
 
 **Everything stays on your machine.** curlapi binds to `127.0.0.1` only, has no
@@ -243,25 +402,45 @@ accounts, no telemetry and no server component. It cannot be a hosted service �
 [the reasons are structural](DESIGN.md#why-this-cannot-be-hosted), not a scaling
 decision.
 
-Two things to know:
+Three things to know:
 
 - **Captures contain live credentials.** `~/.curlapi/curlapi.db` holds the cookies
   and bearer tokens from your logged-in session. Treat it like a password store.
-- **Exports carry those credentials too**, by default and on purpose — a command
-  with `{{token}}` in it does not run. Use `--redact` before sharing an export,
-  and share the artefacts rather than the database.
+- **Imported documents usually do too.** The files departments hand over routinely
+  carry live API keys, and sometimes sign-in details. What comes out of one
+  deserves the same care as the file itself.
+- **Exports carry those credentials**, by default and on purpose for captures — a
+  command with `{{token}}` in it does not run. Use `--redact` before sharing a
+  capture export. Document exports default the other way, lifting credentials into
+  collection variables, because a collection exists to be sent to somebody.
 
 ## Development
 
 ```bash
-npm test          # 73 tests: curl golden file, filter decisions, header merge, end-to-end capture
+npm test          # 106 tests: curl golden file, filter decisions, header merge,
+                  # document parsing across four layouts, end-to-end capture
 npm run typecheck # tsc --noEmit
-npm run dev:ui    # Vite dev server for the review UI
+npm run dev:ui    # Vite dev server for the UI
 npm run build:ui  # build ui/dist
 ```
 
 The end-to-end test drives headless Chrome against a local site and checks both
 that the API call is captured completely and that the noise around it is not.
+
+Layout of the repository:
+
+```
+src/platform/      the app contract, the registry, the shell server
+src/apps/
+  curl-extractor/  manifest · capture controller · routes
+  doc-runner/      manifest · readers · extractors · exporters · routes
+src/curl · replay · filter · store · export      shared by both apps
+ui/src/shell/      router · dashboard · live socket · theme
+ui/src/apps/…      one folder per app
+```
+
+Why it is arranged this way, and the browser and word-processor behaviours behind
+the fiddly parts: [DESIGN.md](DESIGN.md).
 
 Test fixtures use synthetic credentials that are structurally identical to real
 ones. Please keep it that way — never commit a real token, cookie or API key.

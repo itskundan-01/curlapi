@@ -25,6 +25,7 @@ export class CdpConnection {
   #nextId = 1;
   #pending = new Map<number, PendingCall>();
   #listeners = new Set<(event: CdpEvent) => void>();
+  #closeListeners = new Set<() => void>();
   #closed = false;
 
   private constructor(socket: WebSocket) {
@@ -94,9 +95,20 @@ export class CdpConnection {
   }
 
   #failAll(error: Error): void {
+    const wasOpen = !this.#closed;
     this.#closed = true;
     for (const call of this.#pending.values()) call.reject(error);
     this.#pending.clear();
+    // Only the first transition fires: an error is normally followed by a close,
+    // and a capture must not be torn down twice.
+    if (!wasOpen) return;
+    for (const listener of this.#closeListeners) {
+      try {
+        listener();
+      } catch (err) {
+        console.error('[curlapi] close handler failed:', err);
+      }
+    }
   }
 
   send(
@@ -134,6 +146,18 @@ export class CdpConnection {
   onEvent(listener: (event: CdpEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /**
+   * Fires when the browser goes away without being asked to.
+   *
+   * Now that a capture starts and stops while the tool keeps running, quitting
+   * Chrome by hand has to end the capture too — otherwise the dashboard goes on
+   * reporting "Recording" against a browser that no longer exists.
+   */
+  onClose(listener: () => void): () => void {
+    this.#closeListeners.add(listener);
+    return () => this.#closeListeners.delete(listener);
   }
 
   close(): void {

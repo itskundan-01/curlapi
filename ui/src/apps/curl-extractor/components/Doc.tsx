@@ -7,11 +7,11 @@ import {
   type DocState,
   type ReplayResult,
 } from '../api.ts';
-import { copyText, statusClass } from '../util.ts';
+import { copyText, statusClass } from '../../../util.ts';
 import { CopyButton } from './CopyButton.tsx';
 import { ConfirmButton } from './ConfirmButton.tsx';
 import { RunResult } from './RunResult.tsx';
-import { toCopyBlock } from '../../../src/export/doc.ts';
+import { toCopyBlock } from '@core/export/doc.ts';
 
 type Props = {
   doc: DocState;

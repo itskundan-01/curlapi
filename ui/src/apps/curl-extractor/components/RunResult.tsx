@@ -1,7 +1,7 @@
 import type { ReplayResult } from '../api.ts';
-import { formatBytes, formatMs, prettyJson } from '../util.ts';
+import { formatBytes, formatMs, prettyJson } from '../../../util.ts';
 import { TokenExplanation } from './Tokens.tsx';
-import type { HeaderPair } from '../../../src/types.ts';
+import type { HeaderPair } from '@core/types.ts';
 
 function ShapeNote({ result }: { result: ReplayResult }) {
   if (result.shapeMatchesCapture === null) return null;

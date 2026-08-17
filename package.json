@@ -1,7 +1,7 @@
 {
   "name": "curlapi",
-  "version": "0.1.0",
-  "description": "Capture a browser session's real API calls, filter out the noise, and turn them into working curl commands.",
+  "version": "0.2.0-beta.1",
+  "description": "A local workspace of API utilities: capture a browser session's real API calls as working curl commands, or turn a handed-over API document into runnable requests.",
   "keywords": [
     "curl",
     "api",
@@ -11,6 +11,9 @@
     "har",
     "reverse-engineering",
     "postman",
+    "openapi",
+    "docx",
+    "api-documentation",
     "http",
     "network-capture"
   ],

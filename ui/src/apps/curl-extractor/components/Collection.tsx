@@ -6,7 +6,7 @@ import {
   type ReplayResult,
   type SlimRecord,
 } from '../api.ts';
-import { statusClass } from '../util.ts';
+import { statusClass } from '../../../util.ts';
 import { CopyButton } from './CopyButton.tsx';
 import { RunResult } from './RunResult.tsx';
 import { ShelfLifeNote } from './Tokens.tsx';

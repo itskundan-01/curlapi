@@ -5,8 +5,8 @@ import {
   shortestLived,
   describeExpiry,
   describeLifetime,
-} from '../../../src/analyze/tokens.ts';
-import type { HeaderPair } from '../../../src/types.ts';
+} from '@core/analyze/tokens.ts';
+import type { HeaderPair } from '@core/types.ts';
 
 /** Re-renders on a timer so a countdown does not sit there going stale. */
 function useNow(intervalMs = 15_000): number {

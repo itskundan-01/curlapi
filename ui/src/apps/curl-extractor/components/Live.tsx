@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import type { CurlOptions, DocFolder, SlimRecord } from '../api.ts';
-import { formatBytes, formatMs, statusClass } from '../util.ts';
+import { formatBytes, formatMs, statusClass } from '../../../util.ts';
 import { Detail } from './Detail.tsx';
 import { ConfirmButton } from './ConfirmButton.tsx';
 import { FolderPicker } from './FolderPicker.tsx';

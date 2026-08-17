@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { copyText } from '../util.ts';
+import { copyText } from '../../../util.ts';
 
 /** Copy control that confirms in place, so no toast or layout shift is needed. */
 export function CopyButton({ text, label }: { text: string; label?: string }) {
