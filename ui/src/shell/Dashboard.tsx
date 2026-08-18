@@ -3,6 +3,7 @@ import { shellApi, type AppManifest } from './api.ts';
 import { findUiApp } from './apps.tsx';
 import { useLive } from './live.tsx';
 import { navigate } from './router.ts';
+import { AppIcon, IconArrow } from './icons.tsx';
 
 /**
  * The front page: what this workspace can do, and what it is doing.
@@ -27,21 +28,29 @@ export function Dashboard() {
   return (
     <main className="dashboard">
       <header className="dash-hero">
-        <h1>Utilities</h1>
+        <span className="micro dash-kicker">Local workspace</span>
+        <h1>API work, without the retyping.</h1>
         <p>
-          Small local tools for the parts of API work that are otherwise done by
-          hand. Nothing starts until you open one — and nothing leaves this machine.
+          Small tools for the parts of the job that are otherwise done by hand.
+          Nothing starts until you open one — and nothing leaves this machine.
         </p>
         {/* What a beta means *here*, in terms of the work: your data is on disk
             and safe, but check what the tools produce before you trust it. */}
         <p className="dash-beta">
-          <strong>Beta.</strong> Everything here works and is in daily use, but
+          <strong>Beta</strong> Everything here works and is in daily use, but
           expect rough edges — check what a document import produced before you
           act on it, and treat generated commands as a starting point.
         </p>
       </header>
 
       {error && <div className="dash-error">Could not load the app list: {error}</div>}
+
+      <div className="dash-section">
+        <span className="micro">
+          {apps ? `${apps.length} ${apps.length === 1 ? 'utility' : 'utilities'}` : 'Utilities'}
+        </span>
+        <span className="dash-rule" />
+      </div>
 
       <div className="dash-grid">
         {apps?.map((manifest) => (
@@ -77,9 +86,13 @@ function AppCard({ manifest, status }: { manifest: AppManifest; status: unknown 
       }}
     >
       <div className="app-card-top">
-        <span className="app-icon" aria-hidden="true">
-          {manifest.icon}
+        <span className="app-icon">
+          <AppIcon id={manifest.id} fallback={manifest.icon} size={20} />
         </span>
+        <div className="app-card-heading">
+          <h2>{manifest.name}</h2>
+          <p className="app-tagline">{manifest.tagline}</p>
+        </div>
         {activity ? (
           <span className={`app-badge ${activity.tone}`}>
             <span className="dot" />
@@ -87,13 +100,10 @@ function AppCard({ manifest, status }: { manifest: AppManifest; status: unknown 
           </span>
         ) : (
           <span className={`app-badge ${ready ? 'ready' : 'soon'}`}>
-            {ready ? 'Ready' : 'Coming soon'}
+            {ready ? 'Ready' : 'Soon'}
           </span>
         )}
       </div>
-
-      <h2>{manifest.name}</h2>
-      <p className="app-tagline">{manifest.tagline}</p>
 
       <ul className="app-highlights">
         {manifest.highlights.map((highlight) => (
@@ -101,7 +111,10 @@ function AppCard({ manifest, status }: { manifest: AppManifest; status: unknown 
         ))}
       </ul>
 
-      <span className="app-open">{ready ? 'Open →' : 'Not built yet'}</span>
+      <span className="app-open">
+        {ready ? 'Open' : 'Not built yet'}
+        {ready && <IconArrow size={14} />}
+      </span>
     </article>
   );
 }

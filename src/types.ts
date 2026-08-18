@@ -194,6 +194,15 @@ export type CurlOptions = {
   shell: 'posix' | 'powershell';
   /** Emit as one line instead of backslash-continued lines. */
   singleLine: boolean;
+  /**
+   * Keep a multi-line payload on its own lines instead of escaping it to
+   * `$'...\n...'`.
+   *
+   * Off by default, because the capture app's output is diffed against Chrome's
+   * own Copy as cURL. The document app turns it on: there, the command is
+   * something a person reads to check whether their document was understood.
+   */
+  readableBody?: boolean;
 };
 
 export const DEFAULT_CURL_OPTIONS: CurlOptions = {

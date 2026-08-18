@@ -96,7 +96,9 @@ export function RequestEditor({
     <div className="request-editor">
       <div className="request-bar">
         <select
-          className="method-select"
+          // The method carries its own colour here as well as in the list, so
+          // the request bar states what it is about to do before you read it.
+          className={`method-select ${method.toUpperCase()}`}
           value={method}
           onChange={(event) => {
             setMethod(event.target.value);

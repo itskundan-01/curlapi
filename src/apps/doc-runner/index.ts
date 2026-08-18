@@ -66,6 +66,11 @@ function curlOptionsFrom(params: URLSearchParams): CurlOptions {
     redact: params.get('redact') === '1',
     shell: params.get('shell') === 'powershell' ? 'powershell' : 'posix',
     singleLine: params.get('singleLine') === '1',
+    // The document app's commands are read before they are run — by someone
+    // checking whether their document was understood — so the payload stays on
+    // the lines it was written on rather than being escaped onto one. Except in
+    // single-line mode, whose whole purpose is a command with no newlines in it.
+    readableBody: params.get('singleLine') !== '1',
   };
 }
 

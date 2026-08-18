@@ -5,6 +5,7 @@ import { LiveProvider } from './live.tsx';
 import { navigate, useRoute } from './router.ts';
 import { shellApi, type AppManifest } from './api.ts';
 import { useTheme } from './theme.ts';
+import { AppIcon, IconTheme, Wordmark } from './icons.tsx';
 
 /**
  * The frame every page sits in.
@@ -45,6 +46,7 @@ function ShellFrame() {
           onClick={() => navigate({ name: 'dashboard' })}
           title="Back to the dashboard"
         >
+          <Wordmark size={15} />
           curlapi
         </button>
         {/* Stated on every screen rather than only on the front page: the thing
@@ -60,7 +62,8 @@ function ShellFrame() {
               /
             </span>
             <span className="rail-here">
-              {current ? `${current.icon}  ${current.name}` : route.id}
+              {current && <AppIcon id={current.id} fallback={current.icon} size={13} />}
+              {current ? current.name : route.id}
             </span>
           </>
         )}
@@ -82,7 +85,7 @@ function ShellFrame() {
                 }
                 onClick={() => navigate({ name: 'app', id: manifest.id })}
               >
-                <span aria-hidden="true">{manifest.icon}</span>
+                <AppIcon id={manifest.id} fallback={manifest.icon} size={13} />
                 {manifest.name}
               </button>
             ))}
@@ -90,12 +93,12 @@ function ShellFrame() {
         )}
 
         <button
-          className="btn icon"
+          className="btn ghost icon rail-theme"
           title="Switch theme"
           aria-label="Switch theme"
           onClick={toggle}
         >
-          ◐
+          <IconTheme size={15} />
         </button>
       </div>
 

@@ -1,72 +1,197 @@
-/* Two themes from one set of custom properties. The media query supplies the
-   system default; the [data-theme] selectors let the in-app toggle win in both
-   directions rather than only being able to force dark. */
+/* The design system: colour, type, depth and motion, as custom properties.
+ *
+ * Two decisions shape everything below.
+ *
+ * The interface itself is achromatic — graphite and paper, with primary buttons
+ * filled in ink rather than in a brand colour. Colour is reserved for meaning:
+ * the HTTP method, the status class, a credential warning. A workspace where
+ * the Export button competes with a red DELETE chip for attention is one where
+ * the DELETE chip stops registering.
+ *
+ * The single accent is teal, and it is deliberately outside the method palette
+ * (blue, green, amber, violet, red). It marks *where you are* — focus ring,
+ * selected row, active tab — and never marks what something is.
+ *
+ * The media query supplies the system default; the [data-theme] selectors let
+ * the in-app toggle win in both directions rather than only being able to
+ * force dark.
+ */
 
 :root {
-  --bg: #fbfbfa;
+  color-scheme: light;
+
+  /* surfaces, lightest to deepest */
+  --bg: #f6f6f4;
   --panel: #ffffff;
-  --panel-alt: #f5f5f4;
-  --border: #e3e3e0;
-  --border-strong: #cfcfca;
-  --text: #1c1c1a;
-  --muted: #75756e;
-  --faint: #a3a39c;
-  --accent: #4f46e5;
-  --accent-soft: #eef2ff;
-  --ok: #15803d;
-  --ok-soft: #dcfce7;
-  --warn: #b45309;
-  --warn-soft: #fef3c7;
-  --err: #b91c1c;
-  --err-soft: #fee2e2;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.04);
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --panel-alt: #eeeeeb;
+  --panel-sunk: #f4f4f1;
+
+  --border: #e2e2dd;
+  --border-strong: #cbcbc4;
+  --hairline: rgba(20, 22, 25, 0.06);
+
+  --text: #16181b;
+  --muted: #6c7076;
+  --faint: #9a9ea4;
+
+  /* ink: the primary action, and the only large filled surface in the UI */
+  --ink: #1b1e22;
+  --ink-hover: #2b2f35;
+  --ink-text: #ffffff;
+
+  --accent: #0d8f84;
+  --accent-hover: #0b7d73;
+  --accent-soft: #e2f3f1;
+  --accent-line: rgba(13, 143, 132, 0.4);
+  --accent-ink: #ffffff;
+
+  --ok: #147a4a;
+  --ok-soft: #dff3e7;
+  --warn: #9a6206;
+  --warn-soft: #fbeecf;
+  --err: #c02a37;
+  --err-soft: #fbe4e6;
+
+  /* HTTP methods. Hue carries the meaning, so these stay distinct from the
+     accent and from each other at a glance in a long list. */
+  --m-get: #1f6feb;
+  --m-post: #12864b;
+  --m-put: #a36a08;
+  --m-patch: #7043c6;
+  --m-delete: #cc2b3c;
+  --m-other: #6b7280;
+
+  /* Code colouring. Distinct from the method palette on purpose: a green
+     string inside a payload should not read as a POST. */
+  --tk-cmd: #16181b;
+  --tk-flag: #6b5bd2;
+  --tk-string: #1f7a4d;
+  --tk-key: #0b6ea8;
+  --tk-number: #9a6206;
+  --tk-literal: #a3382f;
+  --tk-punct: #8a8f96;
+
+  --shadow-sm: 0 1px 2px rgba(16, 18, 20, 0.06);
+  --shadow: 0 1px 2px rgba(16, 18, 20, 0.05), 0 10px 26px rgba(16, 18, 20, 0.06);
+  --shadow-lift: 0 2px 4px rgba(16, 18, 20, 0.06), 0 16px 40px rgba(16, 18, 20, 0.1);
+  /* A one-pixel highlight along the top edge of a raised control. It is what
+     stops a flat rectangle from reading as a flat rectangle. */
+  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --grid-line: rgba(20, 22, 25, 0.038);
+
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r: 9px;
+  --r-lg: 13px;
+  --r-pill: 999px;
+
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --fast: 0.12s var(--ease);
+  --slow: 0.22s var(--ease);
 }
 
+/* One block of overrides, applied by the system preference and by the toggle.
+   Anything not listed here is identical in both themes on purpose. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #131316;
-    --panel: #1a1a1e;
-    --panel-alt: #212127;
-    --border: #2c2c33;
-    --border-strong: #3d3d46;
-    --text: #e9e9ec;
-    --muted: #9a9aa5;
-    --faint: #6b6b76;
-    --accent: #8b85ff;
-    --accent-soft: #26243f;
-    --ok: #4ade80;
-    --ok-soft: #14321f;
-    --warn: #fbbf24;
-    --warn-soft: #362a10;
-    --err: #f87171;
-    --err-soft: #3a1a1a;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #0b0c0e;
+    --panel: #131519;
+    --panel-alt: #1a1d22;
+    --panel-sunk: #0f1114;
+    --border: #23262c;
+    --border-strong: #343941;
+    --hairline: rgba(255, 255, 255, 0.06);
+    --text: #e7eaee;
+    --muted: #99a1ab;
+    --faint: #69717b;
+    --ink: #eef1f4;
+    --ink-hover: #ffffff;
+    --ink-text: #0b0c0e;
+    --accent: #3fd8c6;
+    --accent-hover: #5ce4d4;
+    --accent-soft: rgba(63, 216, 198, 0.13);
+    --accent-line: rgba(63, 216, 198, 0.45);
+    --accent-ink: #04201d;
+    --ok: #4ec988;
+    --ok-soft: rgba(78, 201, 136, 0.14);
+    --warn: #e5aa2f;
+    --warn-soft: rgba(229, 170, 47, 0.14);
+    --err: #f4707a;
+    --err-soft: rgba(244, 112, 122, 0.14);
+    --m-get: #5ba4fb;
+    --m-post: #4ec988;
+    --m-put: #e5aa2f;
+    --m-patch: #a98bf5;
+    --m-delete: #f4707a;
+    --m-other: #8b939d;
+    --tk-cmd: #e7eaee;
+    --tk-flag: #b4a8ff;
+    --tk-string: #86d6a4;
+    --tk-key: #7fc8f8;
+    --tk-number: #e5aa2f;
+    --tk-literal: #f2907f;
+    --tk-punct: #79818b;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 26px rgba(0, 0, 0, 0.34);
+    --shadow-lift: 0 2px 4px rgba(0, 0, 0, 0.45), 0 18px 44px rgba(0, 0, 0, 0.5);
+    --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    --grid-line: rgba(255, 255, 255, 0.045);
   }
 }
 
-:root[data-theme='light'] {
-  --bg: #fbfbfa; --panel: #ffffff; --panel-alt: #f5f5f4;
-  --border: #e3e3e0; --border-strong: #cfcfca;
-  --text: #1c1c1a; --muted: #75756e; --faint: #a3a39c;
-  --accent: #4f46e5; --accent-soft: #eef2ff;
-  --ok: #15803d; --ok-soft: #dcfce7;
-  --warn: #b45309; --warn-soft: #fef3c7;
-  --err: #b91c1c; --err-soft: #fee2e2;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.04);
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0b0c0e;
+  --panel: #131519;
+  --panel-alt: #1a1d22;
+  --panel-sunk: #0f1114;
+  --border: #23262c;
+  --border-strong: #343941;
+  --hairline: rgba(255, 255, 255, 0.06);
+  --text: #e7eaee;
+  --muted: #99a1ab;
+  --faint: #69717b;
+  --ink: #eef1f4;
+  --ink-hover: #ffffff;
+  --ink-text: #0b0c0e;
+  --accent: #3fd8c6;
+  --accent-hover: #5ce4d4;
+  --accent-soft: rgba(63, 216, 198, 0.13);
+  --accent-line: rgba(63, 216, 198, 0.45);
+  --accent-ink: #04201d;
+  --ok: #4ec988;
+  --ok-soft: rgba(78, 201, 136, 0.14);
+  --warn: #e5aa2f;
+  --warn-soft: rgba(229, 170, 47, 0.14);
+  --err: #f4707a;
+  --err-soft: rgba(244, 112, 122, 0.14);
+  --m-get: #5ba4fb;
+  --m-post: #4ec988;
+  --m-put: #e5aa2f;
+  --m-patch: #a98bf5;
+  --m-delete: #f4707a;
+  --m-other: #8b939d;
+  --tk-cmd: #e7eaee;
+  --tk-flag: #b4a8ff;
+  --tk-string: #86d6a4;
+  --tk-key: #7fc8f8;
+  --tk-number: #e5aa2f;
+  --tk-literal: #f2907f;
+  --tk-punct: #79818b;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 26px rgba(0, 0, 0, 0.34);
+  --shadow-lift: 0 2px 4px rgba(0, 0, 0, 0.45), 0 18px 44px rgba(0, 0, 0, 0.5);
+  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --grid-line: rgba(255, 255, 255, 0.045);
 }
 
-:root[data-theme='dark'] {
-  --bg: #131316; --panel: #1a1a1e; --panel-alt: #212127;
-  --border: #2c2c33; --border-strong: #3d3d46;
-  --text: #e9e9ec; --muted: #9a9aa5; --faint: #6b6b76;
-  --accent: #8b85ff; --accent-soft: #26243f;
-  --ok: #4ade80; --ok-soft: #14321f;
-  --warn: #fbbf24; --warn-soft: #362a10;
-  --err: #f87171; --err-soft: #3a1a1a;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
-}
+/* Kept as an explicit block so the toggle can force light while the system is
+   dark, which the media query alone cannot do. */
+:root[data-theme='light'] { color-scheme: light; }
 
 * { box-sizing: border-box; }
 
@@ -80,9 +205,77 @@ body {
   font-size: 13.5px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button, input, select, textarea { font: inherit; color: inherit; }
+
+::selection { background: var(--accent-soft); color: var(--text); }
+
+/* The default scrollbar is a light-grey slab that ignores the theme entirely,
+   and this UI is full of scrolling panels. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--r-pill);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+::placeholder { color: var(--faint); }
+
+/* One focus treatment for the whole workspace: a ring in the accent, offset so
+   it reads around the control rather than as part of it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* A label in the machine-facing voice: small, spaced, monospace-adjacent.
+   Used for the things a person reads as data rather than as prose. */
+.micro {
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* Syntax colouring, used wherever a command or a payload is displayed. */
+.tk-cmd { color: var(--tk-cmd); font-weight: 600; }
+.tk-flag { color: var(--tk-flag); }
+.tk-string { color: var(--tk-string); }
+.tk-key { color: var(--tk-key); }
+.tk-number { color: var(--tk-number); }
+.tk-literal { color: var(--tk-literal); }
+.tk-punct { color: var(--tk-punct); }
+
+/* The hairline grid behind the empty and introductory areas. It is the one
+   piece of decoration in the interface, and it is there to make an empty panel
+   read as prepared space rather than as something that failed to load. */
+.gridfield {
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 34px 34px;
+  background-position: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
 
 /* ---- shell ------------------------------------------------------------- */
 
@@ -160,39 +353,40 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .tabs {
   display: flex; gap: 2px;
-  background: var(--panel-alt);
-  padding: 3px; border-radius: 9px;
+  background: var(--panel-sunk);
+  padding: 3px; border-radius: var(--r);
   border: 1px solid var(--border);
 }
 
 .tab {
   display: flex; align-items: center; gap: 6px;
-  border: 0; background: transparent; cursor: pointer;
-  padding: 5px 14px; border-radius: 7px;
-  color: var(--muted); font-weight: 500;
-  transition: color 0.12s ease, background 0.12s ease;
+  border: 1px solid transparent; background: transparent; cursor: pointer;
+  padding: 4px 13px; border-radius: var(--r-sm);
+  color: var(--muted); font-weight: 520;
+  transition: color var(--fast), background var(--fast), border-color var(--fast);
 }
-.tab:hover { color: var(--text); }
+.tab:hover { color: var(--text); background: var(--panel-alt); }
 
-/* The selected tab is filled with the accent in both themes. The previous
-   panel-on-panel-alt treatment was a couple of percent of lightness apart and
-   effectively invisible in dark mode. */
+/* Selection is marked in the accent — the colour this interface uses for
+   "where you are" and nothing else. A panel-on-panel-alt treatment was tried
+   first and was a couple of percent of lightness apart: invisible in the dark
+   theme, which is the one most of this work happens in. */
 .tab[aria-selected='true'] {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
   font-weight: 600;
-  box-shadow: var(--shadow);
 }
-.tab[aria-selected='true']:hover { color: #fff; }
+.tab[aria-selected='true']:hover { color: var(--accent); background: var(--accent-soft); }
 
 .tab-count {
   font-size: 11px; font-variant-numeric: tabular-nums;
-  padding: 0 6px; border-radius: 20px;
+  padding: 0 6px; border-radius: var(--r-pill);
   background: var(--panel); color: var(--muted);
   min-width: 20px; text-align: center;
 }
 .tab[aria-selected='true'] .tab-count {
-  background: rgba(255, 255, 255, 0.22); color: #fff;
+  background: var(--accent); color: var(--accent-ink); font-weight: 600;
 }
 
 .counts {
@@ -206,49 +400,133 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* A count or filter rendered as a pill. Used for failures, where the point is
    that it is impossible to miss. */
 .chip {
-  border: 1px solid var(--border-strong); background: var(--panel);
+  border: 1px solid var(--border); background: var(--panel);
   color: var(--muted); cursor: pointer;
-  border-radius: 20px; padding: 2px 10px;
+  border-radius: var(--r-pill); padding: 2px 10px;
   font-size: 12px; font-variant-numeric: tabular-nums;
+  transition: background var(--fast), border-color var(--fast), color var(--fast);
 }
-.chip:hover { border-color: var(--border-strong); background: var(--panel-alt); }
-.chip.bad { color: var(--err); border-color: var(--err); }
+.chip:hover { border-color: var(--border-strong); background: var(--panel-alt); color: var(--text); }
+.chip.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
 .chip.bad:hover { background: var(--err-soft); }
-.chip.bad.on { background: var(--err); border-color: var(--err); color: #fff; }
+.chip.bad.on { background: var(--err); border-color: var(--err); color: var(--panel); }
 
 /* ---- controls ---------------------------------------------------------- */
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 1px solid var(--border-strong);
   background: var(--panel);
-  border-radius: 7px;
+  box-shadow: var(--bevel), var(--shadow-sm);
+  border-radius: var(--r-sm);
   padding: 5px 11px;
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 520;
   white-space: nowrap;
+  transition: background var(--fast), border-color var(--fast), color var(--fast),
+    transform var(--fast), box-shadow var(--fast);
 }
-.btn:hover { background: var(--panel-alt); }
-.btn:active { transform: translateY(0.5px); }
-.btn:disabled { opacity: 0.45; cursor: default; transform: none; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn.primary:hover { filter: brightness(1.08); }
+.btn:hover { background: var(--panel-alt); border-color: var(--faint); }
+.btn:active { transform: translateY(1px); box-shadow: none; }
+.btn:disabled { opacity: 0.4; cursor: default; transform: none; box-shadow: none; }
+
+/* The primary action is filled in ink rather than in the accent. There is one
+   of these on screen at a time, and it should be the darkest (or, in dark mode,
+   the brightest) thing in view — not another coloured rectangle among the
+   method chips. */
+.btn.primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--ink-text);
+  font-weight: 580;
+}
+.btn.primary:hover { background: var(--ink-hover); border-color: var(--ink-hover); }
+
+.btn.ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--muted); }
+.btn.ghost:hover { background: var(--panel-alt); color: var(--text); border-color: transparent; }
+
 .btn.icon { padding: 5px 8px; }
 .btn.small { padding: 3px 8px; font-size: 12px; }
 
-input[type='search'], input[type='text'], select {
+input[type='search'], input[type='text'], input[type='url'], textarea, select {
   border: 1px solid var(--border-strong);
   background: var(--panel);
-  border-radius: 7px;
+  border-radius: var(--r-sm);
   padding: 5px 9px;
   outline: none;
+  transition: border-color var(--fast), box-shadow var(--fast);
 }
-input:focus-visible, select:focus-visible, .btn:focus-visible, .tab:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+input[type='search']:hover, input[type='text']:hover, select:hover { border-color: var(--faint); }
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: var(--muted); }
-.check input { accent-color: var(--accent); }
+/* The native select arrow is drawn by the platform in the platform's own grey,
+   which is the single most obvious tell that a page was never designed. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 15px) calc(50% + 1px), calc(100% - 10px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  color: var(--text);
+}
+
+/* Same reasoning for the checkbox, which appears in every list in the app. */
+.check { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; color: var(--muted); }
+
+input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  background: var(--panel);
+  box-shadow: var(--bevel);
+  cursor: pointer;
+  position: relative;
+  transition: background var(--fast), border-color var(--fast);
+}
+input[type='checkbox']:hover { border-color: var(--faint); }
+input[type='checkbox']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: none;
+}
+input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 1.5px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--accent-ink);
+  border-width: 0 2px 2px 0;
+  transform: rotate(42deg);
+}
+input[type='checkbox']:indeterminate {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+input[type='checkbox']:indeterminate::after {
+  content: '';
+  position: absolute;
+  left: 2.5px;
+  top: 6px;
+  width: 8px;
+  height: 2px;
+  background: var(--accent-ink);
+  border-radius: 1px;
+}
 
 .toolbar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -272,12 +550,12 @@ table.rows th {
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   text-align: left;
-  font-weight: 550;
-  font-size: 11.5px;
-  letter-spacing: 0.02em;
+  font-weight: 650;
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--faint);
-  padding: 7px 10px;
+  padding: 8px 10px;
   white-space: nowrap;
 }
 
@@ -292,7 +570,12 @@ table.rows td {
 
 table.rows tbody tr { cursor: pointer; }
 table.rows tbody tr:hover { background: var(--panel-alt); }
+/* Selection is a tinted row with a spine down its left edge, so it survives
+   being scrolled halfway out of view. */
 table.rows tbody tr[aria-selected='true'] { background: var(--accent-soft); }
+table.rows tbody tr[aria-selected='true'] td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 table.rows tbody tr.noise { color: var(--faint); }
 table.rows tbody tr.noise .name { font-style: italic; }
 
@@ -302,18 +585,38 @@ table.rows tbody tr.noise .name { font-style: italic; }
 .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
 .why { color: var(--faint); font-size: 12px; font-style: italic; }
 
+/* The method is the first thing anyone looks for in a list of requests, so it
+   is a chip rather than a word: fixed width, hue-coded, and legible at a
+   glance from across the row. Each colour is its own token so nothing here
+   collides with the accent, which means something else entirely. */
 .method {
-  font-family: var(--mono); font-size: 11px; font-weight: 600;
-  letter-spacing: 0.02em;
+  display: inline-block;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--m-other);
+  min-width: 5.4ch;
 }
-.method.GET { color: var(--muted); }
-.method.POST { color: var(--ok); }
-.method.PUT, .method.PATCH { color: var(--warn); }
-.method.DELETE { color: var(--err); }
+.method.GET { color: var(--m-get); }
+.method.POST { color: var(--m-post); }
+.method.PUT { color: var(--m-put); }
+.method.PATCH { color: var(--m-patch); }
+.method.DELETE { color: var(--m-delete); }
+.method.HEAD, .method.OPTIONS { color: var(--m-other); }
+
+/* The boxed variant, for places where the method sits beside a name rather
+   than in a column of its own. */
+.method.boxed {
+  text-align: center;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  min-width: 6.4ch;
+}
 
 .status {
-  font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12px;
-  display: inline-block; padding: 1px 7px; border-radius: 5px;
+  font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 11.5px;
+  display: inline-block; padding: 1px 7px; border-radius: var(--r-xs);
   border: 1px solid transparent;
 }
 .status.s2 { color: var(--ok); }
@@ -333,9 +636,14 @@ table.rows tbody tr.failed td:first-child { box-shadow: inset 2px 0 0 var(--err)
 table.rows tbody tr.failed .name { color: var(--err); }
 
 .empty {
-  padding: 48px 24px; text-align: center; color: var(--muted);
+  padding: 56px 24px; text-align: center; color: var(--muted);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 34px 34px;
+  background-position: center;
 }
-.empty h3 { margin: 0 0 6px; font-size: 15px; color: var(--text); font-weight: 600; }
+.empty h3 { margin: 0 0 6px; font-size: 15px; color: var(--text); font-weight: 620; letter-spacing: -0.01em; }
 .empty p { margin: 0 auto; max-width: 46ch; }
 
 /* ---- detail pane ------------------------------------------------------- */
@@ -369,9 +677,9 @@ table.rows tbody tr.failed .name { color: var(--err); }
 
 pre.code {
   margin: 6px 0 0;
-  background: var(--panel-alt);
+  background: var(--panel-sunk);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r);
   padding: 10px 12px;
   font-family: var(--mono);
   font-size: 11.5px;
@@ -388,8 +696,10 @@ dl.headers dt { color: var(--muted); flex-shrink: 0; min-width: 12ch; }
 dl.headers dd { margin: 0; overflow-wrap: anywhere; }
 
 .badge {
-  display: inline-block; padding: 1px 7px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 8px; border-radius: var(--r-pill);
   font-size: 11px; font-weight: 600;
+  border: 1px solid var(--border);
   background: var(--panel-alt); color: var(--muted);
 }
 .badge.ok { background: var(--ok-soft); color: var(--ok); }
@@ -406,9 +716,12 @@ dl.headers dd { margin: 0; overflow-wrap: anywhere; }
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--fast);
 }
+.card:hover { border-color: var(--border-strong); }
 
 .card-head {
   display: flex; align-items: center; gap: 10px;
@@ -419,8 +732,10 @@ dl.headers dd { margin: 0; overflow-wrap: anywhere; }
 
 .card-seq {
   font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+  font-size: 11.5px;
   font-weight: 650;
-  color: var(--accent);
+  color: var(--faint);
   min-width: 2.2ch;
 }
 
@@ -444,6 +759,23 @@ dl.headers dd { margin: 0; overflow-wrap: anywhere; }
 .run-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 
 .exports { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.export-label { margin-left: 6px; }
+
+/* A delete control in a list of things stays out of the way until it is wanted.
+   A row of red buttons down the side of a list reads as a warning about the
+   list itself. */
+.upload-list .btn.danger,
+.launch-sessions .btn.danger {
+  color: var(--faint);
+  border-color: transparent;
+}
+.upload-list li:hover .btn.danger,
+.launch-sessions li:hover .btn.danger,
+.upload-list .btn.danger.armed,
+.launch-sessions .btn.danger.armed {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+}
 
 a.btn { text-decoration: none; display: inline-block; color: inherit; }
 
@@ -474,8 +806,19 @@ a.btn { text-decoration: none; display: inline-block; color: inherit; }
    reads as information rather than a warning. */
 .warnbar.viewing { background: var(--accent-soft); color: var(--accent); }
 
-.btn.danger { color: var(--err); border-color: var(--err); }
-.btn.danger:hover { background: var(--err-soft); }
+/* Destructive buttons state what they are without shouting it. An outlined red
+   button sitting in the corner of every screen becomes wallpaper, and then the
+   armed state below has nothing louder to escalate to. */
+.btn.danger {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 32%, transparent);
+  background: transparent;
+  box-shadow: none;
+}
+.btn.danger:hover {
+  background: var(--err-soft);
+  border-color: color-mix(in srgb, var(--err) 55%, transparent);
+}
 
 /* ---- detail pane header ------------------------------------------------ */
 

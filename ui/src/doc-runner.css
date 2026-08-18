@@ -34,21 +34,42 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 44px 24px;
-  border: 2px dashed var(--border-strong);
-  border-radius: 16px;
+  gap: 10px;
+  padding: 46px 24px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
   background: var(--panel);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 34px 34px;
+  background-position: center;
   cursor: pointer;
   text-align: center;
-  transition: border-color 0.14s ease, background 0.14s ease;
+  transition: border-color var(--fast), background-color var(--fast);
 }
 .dropzone:hover { border-color: var(--accent); }
-.dropzone.over { border-color: var(--accent); background: var(--accent-soft); }
+.dropzone.over { border-color: var(--accent); background-color: var(--accent-soft); }
 .dropzone.busy { cursor: progress; border-style: solid; }
-.dropzone:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.dropzone-icon { font-size: 30px; line-height: 1; }
+/* Drawn, not an emoji: the same mark as the app's own icon, at the size the
+   empty state needs it. */
+.dropzone-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--panel-sunk);
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+}
+.dropzone:hover .dropzone-icon { color: var(--accent); border-color: var(--accent-line); }
+
+.dropzone-icon.spin svg { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .dropzone-formats { color: var(--faint); font-size: 12.5px; }
 
 .upload-errors { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
@@ -81,13 +102,20 @@
 
 .doc-app { min-height: 0; }
 
-.doc-title {
+/* The document's name, not one of the capture app's editable entry titles —
+   which is what the unscoped `.doc-title` in styles.css is for, and why this
+   one was inheriting a monospace face it never wanted. */
+.doc-app .topbar .doc-title {
+  font-family: var(--sans);
+  font-size: 13.5px;
   font-weight: 620;
   letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 26ch;
+  max-width: 34ch;
+  padding: 0;
+  border: 0;
 }
 
 /* The middle track of the three-column topbar, used here for the filter box. */
@@ -118,7 +146,7 @@
 
 .values-bar {
   flex-shrink: 0;
-  padding: 10px 16px 12px;
+  padding: 9px 16px 11px;
   background: var(--panel-alt);
   border-bottom: 1px solid var(--border);
   /* Bounded so a document with twenty variables cannot push the endpoints off
@@ -145,13 +173,21 @@
 .values-head .muted { color: var(--muted); font-size: 12px; }
 
 .values-grid {
-  margin-top: 10px;
+  margin-top: 8px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 9px 14px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 14px;
 }
 
+/* Wide enough for "12 endpoints · markdown": the shared rule is sized for a
+   capture's hostname, and truncating a two-word summary looks like a bug. */
+.doc-app .session-host { max-width: 34ch; }
+
 .value-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+/* The shared values sit above everything else on the screen, so they are kept
+   to the height of the fields themselves. */
+.values-grid .input { padding: 6px 10px; font-size: 12.5px; }
 
 .value-name {
   display: flex;
@@ -238,12 +274,23 @@
 }
 
 .rail-section {
-  padding: 12px 8px 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 8px 5px;
   font-size: 10px;
   font-weight: 650;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.09em;
   color: var(--faint);
+}
+/* A rule running out from the heading, so a document's sections read as
+   sections instead of as three words floating above a list. */
+.rail-section::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 .rail-list > .rail-section:first-child { padding-top: 2px; }
 
@@ -257,12 +304,15 @@
   padding-left: 4px;
 }
 .rail-row:hover { background: var(--panel); }
+
+/* Selection is a tint and a spine rather than a filled block. A solid bar of
+   accent across the row hid the method colour, which is the thing being
+   scanned for — and made a list of endpoints read as a list of buttons. */
 .rail-row.active {
-  background: var(--accent);
-  box-shadow: var(--shadow);
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
-.rail-row.active .rail-item { color: #fff; font-weight: 570; }
-.rail-row.active .method { color: rgba(255, 255, 255, 0.85); }
+.rail-row.active .rail-item { color: var(--text); font-weight: 580; }
 
 .rail-tick { flex-shrink: 0; margin: 0; cursor: pointer; }
 
@@ -291,10 +341,23 @@
 }
 
 .rail-flag { font-style: normal; color: var(--accent); flex-shrink: 0; font-size: 11px; }
-.rail-row.active .rail-flag { color: #fff; }
 .rail-flag.warn { color: var(--warn); }
 
+/* Deleting the import is a real action but not a frequent one, so it does not
+   sit in the corner outlined in red all day. */
 .rail-footer { padding: 8px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.rail-footer .btn.danger {
+  color: var(--muted);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.rail-footer .btn.danger:hover {
+  color: var(--err);
+  background: var(--err-soft);
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+}
+.rail-footer .btn.danger.armed { color: var(--err); border-color: var(--err); }
 
 .endpoint-detail {
   flex: 1;
@@ -332,7 +395,18 @@
 
 .pane { min-width: 0; min-height: 0; overflow: auto; }
 .pane-request { flex: 1.15 1 0; display: flex; flex-direction: column; }
-.pane-docs { flex: 1 1 0; border-left: 1px solid var(--border); background: var(--panel-alt); }
+/* The document pane is often mostly empty — a spec table gives four lines and
+   nothing else. The hairline grid makes that read as reserved space rather than
+   as a panel that failed to load. */
+.pane-docs {
+  flex: 1 1 0;
+  border-left: 1px solid var(--border);
+  background-color: var(--panel-alt);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
 
 /* Narrow windows stack the panes rather than squeezing both. */
 @media (max-width: 1180px) {
@@ -372,14 +446,20 @@
   flex-shrink: 0;
   font-family: var(--mono);
   font-size: 12px;
-  font-weight: 650;
-  padding: 8px 10px;
-  border-radius: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 8px 26px 8px 11px;
+  border-radius: var(--r);
   border: 1px solid var(--border-strong);
-  background: var(--panel-alt);
-  color: var(--text);
+  background-color: var(--panel-alt);
+  color: var(--m-other);
   cursor: pointer;
 }
+.method-select.GET { color: var(--m-get); }
+.method-select.POST { color: var(--m-post); }
+.method-select.PUT { color: var(--m-put); }
+.method-select.PATCH { color: var(--m-patch); }
+.method-select.DELETE { color: var(--m-delete); }
 
 .url-input {
   flex: 1;
@@ -387,9 +467,9 @@
   font-family: var(--mono);
   font-size: 12.5px;
   padding: 8px 12px;
-  border-radius: 9px;
+  border-radius: var(--r);
   border: 1px solid var(--border-strong);
-  background: var(--bg);
+  background: var(--panel-sunk);
   color: var(--text);
 }
 .url-input:focus {
@@ -434,22 +514,30 @@
 }
 
 .subtab {
+  position: relative;
   border: 0;
   background: transparent;
   cursor: pointer;
-  padding: 7px 12px;
-  border-radius: 7px 7px 0 0;
+  padding: 8px 12px;
   color: var(--muted);
   font-size: 12.5px;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  transition: color var(--fast);
+}
+.subtab::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform var(--fast);
 }
 .subtab:hover { color: var(--text); }
-.subtab[aria-selected='true'] {
-  color: var(--text);
-  font-weight: 600;
-  border-bottom-color: var(--accent);
-}
+.subtab[aria-selected='true'] { color: var(--text); font-weight: 600; }
+.subtab[aria-selected='true']::after { transform: scaleX(1); }
 
 /* Grows with its content and scrolls once it runs out of room — the editor
    above and the response below keep their places either way. */
@@ -553,7 +641,7 @@
 
 /* ---- the command, as the primary view ------------------------------------ */
 
-.curl-view { display: flex; flex-direction: column; gap: 10px; }
+.curl-view { display: flex; flex-direction: column; gap: 9px; }
 
 .curl-view-head {
   display: flex;
@@ -564,77 +652,142 @@
 }
 
 .curl-shell {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 650;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.09em;
   color: var(--faint);
+  border: 1px solid var(--border);
   background: var(--panel-alt);
-  padding: 2px 8px;
-  border-radius: 20px;
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
 }
 
 .curl-hint { font-size: 11.5px; color: var(--faint); }
 
-/* Each line is a control, so the whole command reads as one block of code while
-   still being the way in to editing any part of it. */
+/* The command as a block of code, with each part a control inside it — so it
+   reads the way a curl command is written while still being the way in to
+   editing any of it.
+
+   Nothing is clipped horizontally. An earlier version gave each line
+   `text-overflow: ellipsis`, which meant the payload — the part most worth
+   checking — was never actually visible. */
+.curl-block {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--panel-sunk);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
 .curl-lines {
   display: flex;
   flex-direction: column;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 4px;
-  overflow-x: auto;
+  padding: 10px 6px;
 }
 
 .curl-line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   width: 100%;
   border: 0;
+  border-left: 2px solid transparent;
   background: transparent;
   cursor: pointer;
   text-align: left;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
   font-family: var(--mono);
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--text);
+  transition: background var(--fast), border-color var(--fast);
 }
-.curl-line:hover:not(:disabled) { background: var(--accent-soft); }
+.curl-line:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
 .curl-line:disabled { cursor: default; }
-.curl-line.url { color: var(--text); font-weight: 550; }
-.curl-line.header { color: var(--muted); }
-.curl-line.body { color: var(--ok); }
+
+/* The payload is one part, not one per line: it is edited as a whole, and a row
+   of separate buttons through the middle of a JSON object reads as damage. */
+.curl-line.body {
+  margin-top: 3px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+/* A hanging indent, so the payload sits under its own flag rather than starting
+   two columns to the left of it. The negative first-line indent cancels the
+   padding for the `--data-raw '{` line only; every line the payload brings with
+   it keeps the padding. */
+.curl-line.body .curl-text {
+  padding-left: 2ch;
+  text-indent: -2ch;
+}
 
 .curl-text {
   flex: 1;
   min-width: 0;
-  white-space: pre;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  /* A 300-character bearer token has nowhere to break, and a horizontal
+     scrollbar under a command nobody can read is not an improvement. */
+  overflow-wrap: anywhere;
 }
 
 .curl-edit {
   flex-shrink: 0;
+  position: sticky;
+  top: 2px;
   font-family: var(--sans);
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 650;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   color: var(--accent);
   opacity: 0;
   padding: 1px 6px;
-  border-radius: 20px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--accent-line);
   background: var(--panel);
+  transition: opacity var(--fast);
 }
 .curl-line:hover:not(:disabled) .curl-edit { opacity: 1; }
 
-.curl-replace { display: flex; flex-direction: column; gap: 8px; }
-.curl-replace .link-btn { padding: 0; }
+/* Long payloads are shown to a readable depth rather than either cut off or
+   unrolled over everything else on the screen. */
+.curl-more {
+  align-self: flex-start;
+  margin: 2px 0 0 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: var(--r-pill);
+  padding: 2px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.curl-more:hover { color: var(--text); border-color: var(--border-strong); }
+
+.curl-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 6px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.curl-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.link-btn.quiet { padding: 0; font-size: 11.5px; color: var(--muted); }
+
 .curl-paste { display: flex; flex-direction: column; gap: 8px; }
 
 /* ---- response ------------------------------------------------------------ */
@@ -651,6 +804,29 @@
   max-height: 52%;
   overflow: auto;
 }
+
+/* The resting state of the response area: a strip, not a reserved half-screen.
+   It carries the grid the rest of the workspace uses for space that is prepared
+   rather than broken. */
+.response-panel.idle { background: var(--panel-alt); }
+
+.response-idle {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 16px 18px;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+.response-idle p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  max-width: 62ch;
+}
+.response-idle strong { color: var(--text); font-weight: 600; }
 
 .response-status {
   display: flex;
@@ -669,18 +845,20 @@
 .response-tabs { display: flex; gap: 2px; }
 
 .response-tab {
-  border: 0;
+  border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
   padding: 3px 9px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   color: var(--muted);
   font-size: 11.5px;
+  transition: color var(--fast), background var(--fast), border-color var(--fast);
 }
-.response-tab:hover { color: var(--text); }
+.response-tab:hover { color: var(--text); background: var(--panel); }
 .response-tab[aria-selected='true'] {
-  background: var(--panel);
-  color: var(--text);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -837,8 +1015,8 @@ table.mini .code-cell { width: 62px; }
   width: 310px;
   background: var(--panel);
   border: 1px solid var(--border-strong);
-  border-radius: 11px;
-  box-shadow: var(--shadow);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lift);
   padding: 5px;
   display: flex;
   flex-direction: column;

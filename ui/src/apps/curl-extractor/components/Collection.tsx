@@ -219,6 +219,9 @@ export function Collection({
               onSelect={onSelectFolder}
               onCreate={onCreateFolder}
             />
+            {/* Named, because three unlabelled file types beside an "Add to
+                doc" button read as four unrelated actions. */}
+            <span className="micro export-label">Download</span>
             <a className="btn small" href={api.exportUrl('script', curlOptions)} download>
               curls.sh
             </a>

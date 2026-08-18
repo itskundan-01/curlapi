@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCurl } from '../src/curl/build.ts';
-import { escapePosix } from '../src/curl/escape.ts';
+import { escapePosix, escapePosixReadable } from '../src/curl/escape.ts';
 import { DEFAULT_CURL_OPTIONS } from '../src/types.ts';
 import { makeRecord, headers } from './helpers.ts';
 
@@ -169,6 +169,30 @@ test('switches to ANSI-C quoting exactly where Chrome does', () => {
   assert.equal(escapePosix('a\nb'), "$'a\\nb'");
   // Non-ASCII above the C1 range stays inside ordinary single quotes.
   assert.equal(escapePosix('héllo'), "'héllo'");
+});
+
+test('a readable body keeps its lines, and still runs', () => {
+  // What the document app displays and copies. `$'{\n  "a": 1\n}'` is correct
+  // and unreadable; a newline inside single quotes is just a newline.
+  assert.equal(escapePosixReadable('{\n  "a": 1\n}'), "'{\n  \"a\": 1\n}'");
+  // A quote cannot live inside single quotes, so the shell's own idiom is used.
+  assert.equal(escapePosixReadable("it's"), "'it'\\''s'");
+  // Anything a literal cannot carry falls back to Chrome's strict form, or the
+  // character would vanish from the command entirely.
+  assert.equal(escapePosixReadable('a\u0007b'), escapePosix('a\u0007b'));
+
+  const record = makeRecord({
+    method: 'POST',
+    requestHeaders: headers({ 'content-type': 'application/json' }),
+    requestBody: { encoding: 'text', data: '{\n  "a": 1\n}', truncated: false },
+  });
+
+  const readable = buildCurl(record, { ...DEFAULT_CURL_OPTIONS, readableBody: true });
+  assert.match(readable, /--data-raw '\{\n {2}"a": 1\n\}'/);
+
+  // The capture app is unaffected: its output is diffed against DevTools.
+  const chrome = buildCurl(record, DEFAULT_CURL_OPTIONS);
+  assert.match(chrome, /--data-raw \$'\{\\n {2}"a": 1\\n\}'/);
 });
 
 test('adds --compressed only when the server actually compressed', () => {

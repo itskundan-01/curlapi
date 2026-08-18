@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { api, type ImportSummary } from './api.ts';
 import { ConfirmButton } from '../curl-extractor/components/ConfirmButton.tsx';
+import { IconDocument, IconSpinner } from '../../shell/icons.tsx';
 
 /**
  * What the app opens on: drop the document in.
@@ -98,12 +99,16 @@ export function Upload({
         />
         {busy ? (
           <>
-            <span className="dropzone-icon">⏳</span>
+            <span className="dropzone-icon spin" aria-hidden="true">
+              <IconSpinner size={20} />
+            </span>
             <strong>Reading {busy}…</strong>
           </>
         ) : (
           <>
-            <span className="dropzone-icon">📄</span>
+            <span className="dropzone-icon" aria-hidden="true">
+              <IconDocument size={22} />
+            </span>
             <strong>Drop a document here, or click to choose one</strong>
             <span className="dropzone-formats">
               Word (.docx) · PDF · Markdown · plain text · Postman &amp; OpenAPI JSON

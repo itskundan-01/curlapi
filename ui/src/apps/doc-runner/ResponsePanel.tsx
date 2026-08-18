@@ -44,7 +44,22 @@ export function ResponsePanel({
     );
   }
 
-  if (!result) return null;
+  // Not a tall reserved region — a short strip that says what the space is for.
+  // Nothing at all here left the pane ending in a void, which read as the panel
+  // having failed rather than as a request not yet sent.
+  if (!result) {
+    return (
+      <div className="response-panel idle">
+        <div className="response-idle">
+          <span className="micro">Response</span>
+          <p>
+            Not run yet. <strong>Run</strong> sends this request from your machine and
+            shows what came back — beside what the document promised.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const failed = result.error !== null;
   const body = result.bodyEncoding === 'base64' ? '(binary response)' : prettyJson(result.body);

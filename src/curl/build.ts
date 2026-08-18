@@ -1,5 +1,5 @@
 import type { CurlOptions, HeaderPair, RequestRecord } from '../types.ts';
-import { escapeFor, escapeUrlGlobs } from './escape.ts';
+import { escapeBodyFor, escapeFor, escapeUrlGlobs } from './escape.ts';
 
 /**
  * Headers curl derives or manages itself. Emitting these produces a command that
@@ -108,7 +108,7 @@ function bodyArgument(record: RequestRecord, options: CurlOptions): string[] {
     return body.entries.map((entry) => `-F ${escapeFor(options.shell, entry)}`);
   }
 
-  return [`--data-raw ${escapeFor(options.shell, body.data)}`];
+  return [`--data-raw ${escapeBodyFor(options.shell, body.data, options.readableBody === true)}`];
 }
 
 /** True when the captured response body arrived compressed. */
