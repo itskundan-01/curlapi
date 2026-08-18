@@ -62,6 +62,14 @@ const FLAGS: Record<string, string> = {
   v: 'flag',
   G: 'get',
   get: 'get',
+  // `-I` sends a HEAD, `-T` sends a PUT, and `--json` is POST plus two headers.
+  // Each is the only statement of the method in commands that use it — and
+  // without `-T`, its filename argument gets mistaken for the URL.
+  I: 'head',
+  head: 'head',
+  T: 'upload',
+  'upload-file': 'upload',
+  json: 'json',
 };
 
 /**
@@ -292,6 +300,10 @@ export function parseCurl(command: string, blocks: number[]): Candidate | null {
   let method: string | null = null;
   let user: string | null = null;
   let forceGet = false;
+  /** A method implied by a flag rather than stated with -X. */
+  let implied: string | null = null;
+  let upload: string | null = null;
+  let jsonShorthand = false;
 
   for (let i = 0; i < tokens.length; i++) {
     const flag = flagOf(tokens[i]);
@@ -355,6 +367,24 @@ export function parseCurl(command: string, blocks: number[]): Candidate | null {
       case 'get':
         forceGet = true;
         break;
+      case 'head':
+        implied = 'HEAD';
+        break;
+      case 'upload':
+        // The file itself is on the author's machine, not in the document.
+        if (next) {
+          implied = 'PUT';
+          upload = next.value;
+          i++;
+        }
+        break;
+      case 'json':
+        if (next) {
+          dataParts.push(next.value);
+          jsonShorthand = true;
+          i++;
+        }
+        break;
       default:
         break;
     }
@@ -373,9 +403,27 @@ export function parseCurl(command: string, blocks: number[]): Candidate | null {
     body = tidyJson(dataParts.join('&')).text;
   }
 
-  // curl's own rule: a body implies POST unless -G or an explicit method says
-  // otherwise. Getting this wrong turns a documented POST into a GET that 405s.
-  const resolved = method ?? (body && !forceGet ? 'POST' : 'GET');
+  // `--json` is shorthand for a POST that both sends and accepts JSON.
+  if (jsonShorthand) {
+    if (!headers.some(([name]) => name.toLowerCase() === 'content-type')) {
+      headers.push(['Content-Type', 'application/json']);
+    }
+    if (!headers.some(([name]) => name.toLowerCase() === 'accept')) {
+      headers.push(['Accept', 'application/json']);
+    }
+  }
+
+  if (upload) {
+    warnings.push(
+      `This command uploads the file \`${upload}\` with -T. The file is not in the ` +
+        'document, so attach it yourself before running the request.',
+    );
+  }
+
+  // curl's own rule: a body implies POST unless -G, an explicit method, or one
+  // of the method-implying flags says otherwise. Getting this wrong turns a
+  // documented POST into a GET that 405s.
+  const resolved = method ?? implied ?? (body && !forceGet ? 'POST' : 'GET');
 
   if (user) {
     headers.push([

@@ -98,7 +98,10 @@ export async function replay(record: RequestRecord): Promise<ReplayResult> {
     signal: AbortSignal.timeout(TIMEOUT_MS),
   };
 
-  if (record.requestBody && record.method.toUpperCase() !== 'GET') {
+  // fetch() throws outright on a GET or HEAD carrying a body, so a record that
+  // somehow has one is replayed without it rather than failing to run at all.
+  const method = record.method.toUpperCase();
+  if (record.requestBody && method !== 'GET' && method !== 'HEAD') {
     init.body =
       record.requestBody.encoding === 'base64'
         ? Buffer.from(record.requestBody.data, 'base64')

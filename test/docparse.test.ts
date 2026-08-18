@@ -266,6 +266,46 @@ test('-G keeps a command with data on GET', () => {
   assert.equal(candidate?.method, 'GET');
 });
 
+test('every method a document can state is read back as that method', () => {
+  // -X is the common form, but three flags state the method by implication and
+  // are the only statement of it in commands that use them.
+  const methodOf = (command: string) => parseCurl(command, [0])?.method;
+
+  for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']) {
+    assert.equal(
+      methodOf(`curl -X ${method} 'https://api.example.test/v1/thing'`),
+      method,
+      `-X ${method} must survive`,
+    );
+  }
+
+  // `-I` is a HEAD. Without it the command reads as a GET.
+  assert.equal(methodOf(`curl -I 'https://api.example.test/v1/thing'`), 'HEAD');
+
+  // `-T` is a PUT — and its filename argument used to be mistaken for the URL,
+  // which sent the request to https://payload.json.
+  const upload = parseCurl(`curl -T payload.json 'https://api.example.test/v1/thing'`, [0]);
+  assert.equal(upload?.method, 'PUT');
+  assert.equal(upload?.url, 'https://api.example.test/v1/thing');
+  assert.ok(upload?.warnings.some((warning) => /attach it yourself/.test(warning)));
+
+  // `--json` is a POST that both sends and accepts JSON.
+  const json = parseCurl(`curl --json '{"a":1}' 'https://api.example.test/v1/thing'`, [0]);
+  assert.equal(json?.method, 'POST');
+  assert.deepEqual(json?.headers, [
+    ['Content-Type', 'application/json'],
+    ['Accept', 'application/json'],
+  ]);
+
+  // A DELETE that carries a body keeps both.
+  const remove = parseCurl(
+    `curl -X DELETE 'https://api.example.test/v1/thing/9' -d '{"reason":"x"}'`,
+    [0],
+  );
+  assert.equal(remove?.method, 'DELETE');
+  assert.equal(remove?.body, '{\n  "reason": "x"\n}');
+});
+
 // --- merging ---------------------------------------------------------------
 
 test('two readings of one endpoint merge instead of duplicating', () => {
