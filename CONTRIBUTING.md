@@ -24,6 +24,7 @@ src/apps/
   curl-extractor/  manifest · capture controller · routes
   doc-runner/      manifest · readers · extractors · exporters · routes
 src/curl · replay · filter · store · export      shared by both apps
+src/postman/       the Collection v2.1 format, shared by both exporters
 ui/src/shell/      router · dashboard · live socket · theme
 ui/src/apps/…      one folder per app
 ```
@@ -41,6 +42,10 @@ Two constraints that are easy to trip over:
   filter. Import the type, and `await import()` the value on first use.
 - **An app owns its own tables.** Reusing the capture side's `sessions` and
   `requests` would make two apps' schemas each other's problem.
+- **Neither app writes Postman JSON by hand.** Both go through
+  `src/postman/collection.ts`, which is validated against the schema vendored in
+  `test/fixtures/`. When they each built the JSON themselves they drifted, in
+  ways that only showed up in somebody else's Postman.
 
 [DESIGN.md](DESIGN.md) explains why the tricky parts are the way they are.
 

@@ -207,6 +207,11 @@ Tick endpoints in the list to **copy a Postman collection straight to the
 clipboard** — Postman's Import takes raw text, so there is no file to save, find
 and upload — or to copy them as curl commands. Exports follow the selection too.
 
+The command is shown in full — URL, every header, and the payload across the
+lines it was written on, syntax-coloured and nothing truncated — and clicking any
+part of it opens the tab that owns it. What you read is exactly what the Copy
+button gives you.
+
 Commands are escaped for **your** shell: PowerShell on Windows, POSIX
 elsewhere, detected in the browser so it is right even when the workspace is
 running on someone else's machine. The override is still there for when you are
@@ -357,6 +362,30 @@ separate "credentials inline" option for your own use.
 
 Tick endpoints in the list first and everything — exports and the clipboard
 copies — narrows to just those.
+
+### What the Postman collection guarantees
+
+Both utilities emit **Collection format v2.1**, built by one shared module
+(`src/postman/`) and checked in the test suite against the published schema,
+which is vendored in `test/fixtures/`. A collection that would fail to import
+fails the tests first. In particular:
+
+- **Every method survives** — GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, and
+  anything non-standard a document happens to use.
+- **The port is kept.** A capture from `localhost:8080` imports as
+  `localhost:8080`, not `localhost`.
+- **`{placeholders}` become path variables** (`:bookingId`), declared as well as
+  written into the path, so Postman shows its path-variable editor.
+- **Form bodies land in the right editor** — `x-www-form-urlencoded` and
+  text-only `multipart/form-data` become key/value rows instead of one long
+  string. A multipart body containing a file stays raw, where the boundary still
+  matches and the request works exactly as captured.
+- **A body on a GET, HEAD or DELETE is not pruned.** Postman drops those by
+  default; the item asks for it to be kept, because documents do describe them.
+- **Credentials become collection variables** (with `--redact`, or by default
+  from a document), so the file can be handed over.
+- **Query values are not re-encoded.** `?q=a%20b` arrives as `a%20b`, not
+  `a%2520b`.
 
 ## Troubleshooting
 

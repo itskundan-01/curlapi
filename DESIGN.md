@@ -214,6 +214,28 @@ elsewhere in the UI:
   the inner one an unbounded height to resolve against, so its `overflow: auto`
   never engages.
 
+### Colour carries meaning, or it is not used
+
+The interface is achromatic — graphite and paper — and the primary action is
+filled in ink rather than in a brand colour. Colour is spent on the things being
+scanned for: the HTTP method, the status class, a credential that needs
+attention. An export button competing with a red `DELETE` chip is an interface
+where the `DELETE` chip stops registering.
+
+There is one accent, teal, and it is deliberately outside the method palette of
+blue, green, amber, violet and red. It means *where you are* — focus ring,
+selected row, active tab — and never means *what something is*. That rule is
+what let the selected endpoint stop being a solid bar of colour: a filled row
+hid the method chip, which is the thing the eye was looking for in the first
+place.
+
+The two remaining details are there because their absence is what makes a page
+look unfinished. Checkboxes and select controls are drawn rather than left to the
+platform, so the same workspace does not arrive as macOS blue on one machine and
+Windows grey on another. And the empty areas — the dashboard hero, the document
+pane with four lines in it, the drop target — carry a hairline grid, so an empty
+panel reads as prepared space rather than as something that failed to load.
+
 ### Reuse, not reimplementation
 
 Running an endpoint and copying it as curl are the capture side's `replay` and
@@ -336,6 +358,52 @@ are frequently load-bearing for signature or replay checks.
 Credentials are emitted as captured, because a command with `{{token}}` in it does
 not run. `--redact` swaps them for placeholders and lifts them into Postman
 variables when you are sharing a collection instead of using one.
+
+**The document app quotes its payloads to be read.** Chrome's escaping puts a
+JSON body on one line — `--data-raw $'{\n  "brandNo": "1"\n}'` — which is
+correct and unreadable. In a capture that is the right trade: the output is
+diffed against DevTools. In the document app the command is the thing a person
+reads to check whether their document was understood, so the payload keeps its
+lines, exactly as the documents themselves and Postman's own code view write it.
+Both run identically in bash and zsh; a newline inside single quotes is just a
+newline. What is displayed is what the Copy button puts on the clipboard.
+
+### The Postman collection is checked against the schema, not against belief
+
+Both utilities export collections, and each used to build the JSON from its own
+reading of the format. They drifted. One emitted `"type": "secret"` for a
+credential variable — the format's enum is string/boolean/number/any, and
+Postman rejects anything else. Both dropped the port out of the URL object, so a
+capture from `localhost:8080` imported as `localhost`. Neither fault is visible
+from this side of the export: the file is valid JSON, it looks right in an
+editor, and it fails only in somebody else's Postman.
+
+So the format lives in one module, `src/postman/collection.ts`, used by both
+apps, and the published schema is vendored into `test/fixtures/` and run against
+real exports in `test/postman.test.ts`. The validator is about a hundred lines
+because that schema uses nine keywords and nothing else.
+
+Three decisions in that module are worth stating, because they are not in the
+schema and are the difference between a collection that imports and one that
+works:
+
+**URLs are taken apart literally, not with `new URL()`.** The obvious tool is
+the wrong one here: it percent-encodes the `{bookingId}` placeholders documents
+are full of, decodes `+` to a space when query values are read back out, and
+throws outright on a URL that begins `{{baseUrl}}`. Every one of those is a URL
+being carried across on purpose.
+
+**A body on a GET, HEAD or DELETE asks not to be pruned.** Postman drops those
+before sending unless the item says otherwise, and handed-over documents
+describe them more often than they should. A request that silently sends nothing
+is worse than one that fails loudly.
+
+**Form bodies land in their own editors, but only when they can.** A
+`multipart/form-data` body is rendered as fields only if every part is text: a
+file part cannot be reconstructed — the bytes are in the capture, not on the
+importer's disk — and emitting one as a text field would send the file's
+contents as a string. Those stay raw, where the boundary in the Content-Type
+header still matches and the request behaves exactly as captured.
 
 ### Pasting into a terminal
 

@@ -264,6 +264,23 @@ Credentials become **collection variables** by default, so the file can be sent
 to somebody as-is. There is a separate *credentials inline* option for your own
 use — it is labelled, and it means what it says.
 
+What arrives in Postman, from either utility:
+
+- every method the document or the capture used, including `DELETE`, `PATCH` and
+  `HEAD`;
+- the port, when the URL has one — a request to `localhost:8080` is not silently
+  turned into `localhost`;
+- `{bookingId}`-style placeholders as **path variables**, editable in Postman's
+  own path-variable row;
+- form bodies as key/value rows rather than one long encoded string;
+- a body on a `GET` or `DELETE` kept rather than pruned, which is Postman's
+  default behaviour otherwise;
+- the documented (or captured) response saved as an **example**, so the
+  collection still describes the endpoint after the sample credentials expire.
+
+If an import ever fails, it is a bug worth reporting: the exported file is
+checked against Postman's published schema by the test suite.
+
 Commands are escaped for **your** shell automatically: PowerShell on Windows,
 bash/zsh elsewhere. The dropdown in the header overrides it when you are copying
 something for a colleague on the other kind of machine.
