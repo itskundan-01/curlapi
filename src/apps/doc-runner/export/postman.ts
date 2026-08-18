@@ -16,40 +16,28 @@
  *   the request description, because that is the only place they exist.
  * - **Credentials become collection variables**, so the file can be sent to
  *   somebody without sending them the department's live API key.
+ *
+ * The format itself — URL parts, body modes, what a variable is allowed to
+ * contain — lives in src/postman/collection.ts, shared with the capture app and
+ * checked against the published schema by the test suite.
  */
 
 import { randomUUID } from 'node:crypto';
-import type { HeaderPair } from '../../../types.ts';
 import type { ParsedEndpoint, Variable } from '../types.ts';
 import { isSecretHeader } from '../extract/shared.ts';
-
-type PostmanHeader = { key: string; value: string; description?: string };
-type PostmanVariable = { key: string; value: string; description?: string; type?: string };
-
-type PostmanUrl = {
-  raw: string;
-  protocol?: string;
-  host?: string[];
-  path?: string[];
-  query?: Array<{ key: string; value: string; description?: string }>;
-  variable?: PostmanVariable[];
-};
-
-type PostmanRequest = {
-  method: string;
-  header: PostmanHeader[];
-  url: PostmanUrl;
-  body?: { mode: 'raw'; raw: string; options?: { raw: { language: string } } };
-  description?: string;
-};
-
-type PostmanItem = {
-  name: string;
-  request: PostmanRequest;
-  response: unknown[];
-};
-
-type PostmanFolder = { name: string; item: Array<PostmanItem | PostmanFolder> };
+import {
+  bodyPruningBehavior,
+  collection,
+  postmanBody,
+  postmanHeaders,
+  postmanUrl,
+  stringifyCollection,
+  type PostmanFolder,
+  type PostmanItem,
+  type PostmanNode,
+  type PostmanRequest,
+  type PostmanVariable,
+} from '../../../postman/collection.ts';
 
 export type PostmanOptions = {
   /** Lift credentials out of the requests and into collection variables. */
@@ -57,70 +45,6 @@ export type PostmanOptions = {
   /** The environment to point the collection at, when the document lists any. */
   environment?: string;
 };
-
-function bodyLanguage(mime: string): string {
-  if (mime.includes('json')) return 'json';
-  if (mime.includes('xml')) return 'xml';
-  if (mime.includes('html')) return 'html';
-  return 'text';
-}
-
-/**
- * Rewrites `{placeholder}` to Postman's `:placeholder` and describes each one.
- *
- * Postman only offers the path-variable editor for the colon form, and that
- * editor is the difference between a URL somebody can fill in and one they have
- * to retype.
- */
-function toPostmanUrl(endpoint: ParsedEndpoint, url: string): PostmanUrl {
-  const withColons = url.replace(/\{([A-Za-z_][\w-]*)\}/g, ':$1');
-
-  let parsed: URL | null = null;
-  try {
-    parsed = new URL(withColons);
-  } catch {
-    // An unresolvable URL still round-trips as a raw string, which Postman
-    // accepts and shows for editing.
-    return { raw: withColons };
-  }
-
-  const describe = (name: string): string | undefined => {
-    const param = endpoint.params.find((candidate) => candidate.name === name);
-    if (!param) return undefined;
-    return [param.description, param.dataType && `(${param.dataType})`]
-      .filter(Boolean)
-      .join(' ')
-      .trim() || undefined;
-  };
-
-  const query = [...parsed.searchParams.entries()].map(([key, value]) => ({
-    key,
-    value,
-    description: describe(key),
-  }));
-
-  const pathSegments = parsed.pathname.split('/').filter(Boolean).map(decodeURIComponent);
-  const variables: PostmanVariable[] = [];
-  for (const segment of pathSegments) {
-    if (!segment.startsWith(':')) continue;
-    const name = segment.slice(1);
-    const param = endpoint.params.find((candidate) => candidate.name === name);
-    variables.push({
-      key: name,
-      value: param?.expected ?? '',
-      description: describe(name),
-    });
-  }
-
-  return {
-    raw: withColons,
-    protocol: parsed.protocol.replace(':', ''),
-    host: parsed.hostname.split('.'),
-    path: pathSegments,
-    ...(query.length > 0 ? { query } : {}),
-    ...(variables.length > 0 ? { variable: variables } : {}),
-  };
-}
 
 /**
  * Everything the document said about this endpoint, as Markdown.
@@ -186,53 +110,92 @@ function escapeCell(text: string): string {
   return text.replace(/\|/g, '\\|').replace(/\n+/g, ' ') || '—';
 }
 
+/** What the document said about one named parameter, in one line. */
+function annotationsFor(endpoint: ParsedEndpoint) {
+  const describe = (name: string): string | undefined => {
+    const param = endpoint.params.find((candidate) => candidate.name === name);
+    if (!param) return undefined;
+    return (
+      [param.description, param.dataType && `(${param.dataType})`]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || undefined
+    );
+  };
+
+  return {
+    describe,
+    pathValue: (name: string): string | undefined =>
+      endpoint.params.find((candidate) => candidate.name === name)?.expected || undefined,
+  };
+}
+
+/**
+ * Points the request at a named environment, keeping the documented path.
+ *
+ * Documents usually give one worked example against staging and list the other
+ * base URLs in a table; swapping the origin is what turns that table into
+ * something usable.
+ */
+function applyEnvironment(endpoint: ParsedEndpoint, environment: string | undefined): string {
+  if (!environment) return endpoint.url;
+  const match = endpoint.environments.find((candidate) => candidate.name === environment);
+  if (!match) return endpoint.url;
+  try {
+    const target = new URL(endpoint.url);
+    const base = new URL(match.url);
+    return `${base.origin}${target.pathname}${target.search}`;
+  } catch {
+    return endpoint.url;
+  }
+}
+
 function toItem(
   endpoint: ParsedEndpoint,
   options: PostmanOptions,
   secrets: Map<string, string>,
 ): PostmanItem {
-  let url = endpoint.url;
-  if (options.environment) {
-    const environment = endpoint.environments.find(
-      (candidate) => candidate.name === options.environment,
-    );
-    if (environment) {
-      try {
-        const target = new URL(url);
-        const base = new URL(environment.url);
-        url = `${base.origin}${target.pathname}${target.search}`;
-      } catch {
-        /* leave the documented URL alone */
-      }
-    }
-  }
+  // Postman only offers the path-variable editor for the colon form, and that
+  // editor is the difference between a URL somebody can fill in and one they
+  // have to retype.
+  const url = applyEnvironment(endpoint, options.environment).replace(
+    /\{([A-Za-z_][\w-]*)\}/g,
+    ':$1',
+  );
 
-  const headers: PostmanHeader[] = endpoint.headers.map(([name, value]) => {
-    // The value is replaced by a reference to the collection variable holding
-    // it, which is what lets the file be shared.
-    if (options.useVariables && isSecretHeader(name)) {
-      const key = secrets.get(value);
-      if (key) return { key: name, value: `{{${key}}}`, description: 'Collection variable' };
-    }
-    return { key: name, value };
+  // A credential is replaced by a reference to the collection variable holding
+  // it, which is what lets the file be shared.
+  const lifted = new Set<string>();
+  const pairs = endpoint.headers.map(([name, value]) => {
+    const key = options.useVariables && isSecretHeader(name) ? secrets.get(value) : undefined;
+    if (!key) return [name, value] as const;
+    lifted.add(name);
+    return [name, `{{${key}}}`] as const;
   });
+  const header = postmanHeaders(pairs, (name) =>
+    lifted.has(name) ? { description: 'Collection variable' } : {},
+  );
 
+  const body = endpoint.body
+    ? postmanBody({ raw: endpoint.body, contentType: endpoint.bodyMime })
+    : undefined;
+
+  const description = describeEndpoint(endpoint);
   const request: PostmanRequest = {
     method: endpoint.method,
-    header: headers,
-    url: toPostmanUrl(endpoint, url),
-    description: describeEndpoint(endpoint),
+    header,
+    url: postmanUrl(url, annotationsFor(endpoint)),
+    ...(body ? { body } : {}),
+    ...(description ? { description } : {}),
   };
 
-  if (endpoint.body) {
-    request.body = {
-      mode: 'raw',
-      raw: endpoint.body,
-      options: { raw: { language: bodyLanguage(endpoint.bodyMime) } },
-    };
-  }
-
-  const item: PostmanItem = { name: endpoint.name, request, response: [] };
+  const pruning = bodyPruningBehavior(endpoint.method, body);
+  const item: PostmanItem = {
+    name: endpoint.name,
+    request,
+    response: [],
+    ...(pruning ? { protocolProfileBehavior: pruning } : {}),
+  };
 
   if (endpoint.documentedResponse) {
     const success = endpoint.responseCodes.find((code) => code.code.startsWith('2'));
@@ -242,9 +205,9 @@ function toItem(
         originalRequest: request,
         status: success?.description ?? 'OK',
         code: Number(success?.code) || 200,
-        _postman_previewlanguage: bodyLanguage(
-          endpoint.documentedResponse.trimStart().startsWith('{') ? 'json' : 'text',
-        ),
+        _postman_previewlanguage: endpoint.documentedResponse.trimStart().startsWith('{')
+          ? 'json'
+          : 'text',
         header: [],
         body: endpoint.documentedResponse,
       },
@@ -261,10 +224,10 @@ function toItem(
  * grouping the document spent its structure establishing.
  */
 function nest(endpoints: ParsedEndpoint[], build: (endpoint: ParsedEndpoint) => PostmanItem) {
-  const root: Array<PostmanItem | PostmanFolder> = [];
+  const root: PostmanNode[] = [];
   const folders = new Map<string, PostmanFolder>();
 
-  const folderFor = (trail: string[]): Array<PostmanItem | PostmanFolder> => {
+  const folderFor = (trail: string[]): PostmanNode[] => {
     let container = root;
     let key = '';
     for (const name of trail) {
@@ -310,7 +273,10 @@ export function toPostmanCollection(
     // A secret is emitted empty when it is being lifted out, which is the point:
     // the recipient fills in their own.
     value: options.useVariables && variable.secret ? '' : variable.value,
-    type: variable.secret ? 'secret' : 'string',
+    // The format's own enum is string/boolean/number/any — Postman's "secret"
+    // type is a product feature, not a file one, and a collection carrying it
+    // fails schema validation on import.
+    type: 'string',
     description:
       variable.origin === 'path'
         ? 'Path parameter from the document'
@@ -319,23 +285,18 @@ export function toPostmanCollection(
           : undefined,
   }));
 
-  return JSON.stringify(
-    {
-      info: {
-        _postman_id: randomUUID(),
-        name: title,
-        description:
-          `Imported from an API document by curlapi.\n\n` +
-          `${endpoints.length} endpoint${endpoints.length === 1 ? '' : 's'}. ` +
-          (options.useVariables
-            ? 'Credentials are collection variables — fill them in before running.'
-            : 'This file contains credentials copied from the document. Treat it as a secret.'),
-        schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
-      },
-      item: items,
-      ...(collectionVariables.length > 0 ? { variable: collectionVariables } : {}),
-    },
-    null,
-    2,
+  return stringifyCollection(
+    collection({
+      id: randomUUID(),
+      name: title,
+      description:
+        `Imported from an API document by curlapi.\n\n` +
+        `${endpoints.length} endpoint${endpoints.length === 1 ? '' : 's'}. ` +
+        (options.useVariables
+          ? 'Credentials are collection variables — fill them in before running.'
+          : 'This file contains credentials copied from the document. Treat it as a secret.'),
+      items,
+      variables: collectionVariables,
+    }),
   );
 }

@@ -1,90 +1,87 @@
+/**
+ * A capture as a Postman collection.
+ *
+ * The mapping only: everything about the file format itself lives in
+ * ../postman/collection.ts, which both utilities share so their exports cannot
+ * drift apart.
+ */
+
 import { randomUUID } from 'node:crypto';
 import type { CurlOptions, RequestRecord, SessionRecord } from '../types.ts';
 import { selectHeaders, extractSecrets } from '../curl/build.ts';
 import { resolveNames } from './naming.ts';
+import {
+  bodyLanguage,
+  bodyPruningBehavior,
+  collection,
+  postmanBody,
+  postmanHeaders,
+  postmanUrl,
+  stringifyCollection,
+  type PostmanItem,
+  type PostmanRequest,
+  type PostmanFolder,
+  type PostmanNode,
+  type PostmanVariable,
+} from '../postman/collection.ts';
 
-type PostmanHeader = { key: string; value: string };
-type PostmanQuery = { key: string; value: string };
-
-type PostmanItem = {
-  name: string;
-  request: {
-    method: string;
-    header: PostmanHeader[];
-    url: {
-      raw: string;
-      protocol: string;
-      host: string[];
-      path: string[];
-      query?: PostmanQuery[];
-    };
-    body?: { mode: 'raw'; raw: string; options?: { raw: { language: string } } };
-    description?: string;
-  };
-  response: unknown[];
-};
-
-type PostmanFolder = { name: string; item: PostmanItem[] };
-
-function urlParts(rawUrl: string) {
-  const parsed = new URL(rawUrl);
-  const query: PostmanQuery[] = [];
-  parsed.searchParams.forEach((value, key) => query.push({ key, value }));
-  return {
-    raw: rawUrl,
-    protocol: parsed.protocol.replace(':', ''),
-    host: parsed.hostname.split('.'),
-    path: parsed.pathname.split('/').filter(Boolean),
-    ...(query.length > 0 ? { query } : {}),
-  };
+function headerValue(record: RequestRecord, name: string): string {
+  return record.requestHeaders.find(([key]) => key.toLowerCase() === name)?.[1] ?? '';
 }
 
-function bodyLanguage(mimeType: string): string {
-  if (mimeType.includes('json')) return 'json';
-  if (mimeType.includes('xml')) return 'xml';
-  if (mimeType.includes('html')) return 'html';
-  return 'text';
+function describe(record: RequestRecord): string | undefined {
+  const lines: string[] = [];
+  if (record.verdict.reason) {
+    lines.push(`Captured from ${record.host}. Kept because: ${record.verdict.reason}.`);
+  }
+  if (record.requestBody?.encoding === 'base64') {
+    // The bytes are in the capture, not on the importer's disk, so there is
+    // nothing Postman could attach. Saying so beats an empty body.
+    lines.push(
+      '**The request body was binary and is not included.** ' +
+        'Re-attach the file in the Body tab before sending.',
+    );
+  }
+  if (record.requestBody?.truncated) {
+    lines.push('**The browser only handed over part of this request body.**');
+  }
+  return lines.length > 0 ? lines.join('\n\n') : undefined;
 }
 
 function toItem(record: RequestRecord, name: string, options: CurlOptions): PostmanItem {
-  const contentType =
-    record.requestHeaders.find(([key]) => key.toLowerCase() === 'content-type')?.[1] ?? '';
+  const body =
+    record.requestBody && record.requestBody.encoding === 'text'
+      ? postmanBody({ raw: record.requestBody.data, contentType: headerValue(record, 'content-type') })
+      : undefined;
 
-  const item: PostmanItem = {
-    name,
-    request: {
-      method: record.method.toUpperCase(),
-      header: selectHeaders(record.requestHeaders, options).map(([key, value]) => ({
-        key,
-        value,
-      })),
-      url: urlParts(record.url),
-      description: record.verdict.reason
-        ? `Captured from ${record.host}. Kept because: ${record.verdict.reason}.`
-        : undefined,
-    },
-    response: [],
+  const description = describe(record);
+  const request: PostmanRequest = {
+    method: record.method.toUpperCase(),
+    header: postmanHeaders(selectHeaders(record.requestHeaders, options)),
+    url: postmanUrl(record.url),
+    ...(body ? { body } : {}),
+    ...(description ? { description } : {}),
   };
 
-  if (record.requestBody && record.requestBody.encoding === 'text') {
-    item.request.body = {
-      mode: 'raw',
-      raw: record.requestBody.data,
-      options: { raw: { language: bodyLanguage(contentType) } },
-    };
-  }
+  const pruning = bodyPruningBehavior(record.method, body);
+  const item: PostmanItem = {
+    name,
+    request,
+    response: [],
+    ...(pruning ? { protocolProfileBehavior: pruning } : {}),
+  };
 
   // Saving the captured response as a Postman example means the collection still
   // documents the endpoint's shape even after the credentials expire.
   if (record.responseBody && record.responseBody.encoding === 'text') {
     item.response = [
       {
-        name: `${record.status ?? 0} ${record.statusText}`.trim(),
-        originalRequest: item.request,
+        name: `${record.status ?? 0} ${record.statusText}`.trim() || 'Captured response',
+        originalRequest: request,
         status: record.statusText,
         code: record.status ?? 0,
         _postman_previewlanguage: bodyLanguage(record.mimeType),
-        header: record.responseHeaders.map(([key, value]) => ({ key, value })),
+        header: postmanHeaders(record.responseHeaders),
         body: record.responseBody.data,
       },
     ];
@@ -115,37 +112,35 @@ export function toPostmanCollection(
     }
   });
 
-  const items: Array<PostmanItem | PostmanFolder> = [
-    ...[...grouped.entries()].map(([name, item]) => ({ name, item })),
-    ...flat,
-  ];
+  const folders: PostmanFolder[] = [...grouped.entries()].map(([name, item]) => ({ name, item }));
+  const items: PostmanNode[] = [...folders, ...flat];
 
-  const variables: Array<{ key: string; value: string; type: string }> = [];
+  const variables: PostmanVariable[] = [];
   if (options.redact) {
     const merged: Record<string, string> = {};
     for (const record of records) Object.assign(merged, extractSecrets(record));
     for (const [key, value] of Object.entries(merged)) {
-      variables.push({ key, value, type: 'secret' });
+      variables.push({
+        key,
+        value,
+        type: 'string',
+        description: 'Credential from the captured session — replace with your own.',
+      });
     }
   }
 
-  return JSON.stringify(
-    {
-      info: {
-        _postman_id: randomUUID(),
-        name: session.label,
-        description:
-          `Captured with curlapi from ${session.primaryHost ?? 'a browser session'} ` +
-          `on ${new Date(session.startedAt).toISOString()}.` +
-          (options.redact
-            ? '\n\nCredentials are stored as collection variables — fill them in before running.'
-            : '\n\nContains live credentials from the captured session.'),
-        schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
-      },
-      item: items,
-      ...(variables.length > 0 ? { variable: variables } : {}),
-    },
-    null,
-    2,
+  return stringifyCollection(
+    collection({
+      id: randomUUID(),
+      name: session.label,
+      description:
+        `Captured with curlapi from ${session.primaryHost ?? 'a browser session'} ` +
+        `on ${new Date(session.startedAt).toISOString()}.` +
+        (options.redact
+          ? '\n\nCredentials are stored as collection variables — fill them in before running.'
+          : '\n\nContains live credentials from the captured session.'),
+      items,
+      variables,
+    }),
   );
 }
