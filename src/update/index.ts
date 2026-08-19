@@ -16,7 +16,17 @@
  * not.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, rmSync, renameSync, existsSync } from 'node:fs';
+import {
+  readFileSync,
+  writeFileSync,
+  copyFileSync,
+  mkdirSync,
+  rmSync,
+  renameSync,
+  existsSync,
+  utimesSync,
+} from 'node:fs';
+import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { HOME, IS_MANAGED_INSTALL, PROJECT_ROOT, REPO, VERSION } from '../paths.ts';
@@ -300,6 +310,50 @@ async function download(url: string, timeoutMs: number): Promise<Buffer> {
   return Buffer.from(await response.arrayBuffer());
 }
 
+/**
+ * Puts a new icon in front of the user, having just installed one.
+ *
+ * The installers copy the icon out of the payload and into wherever the desktop
+ * reads icons from, so replacing the payload alone leaves the visible icon at
+ * whatever it was when the tool was first installed. Windows is exempt: its
+ * shortcut points straight at the file inside the payload, so it follows along
+ * on its own.
+ *
+ * Best-effort throughout. An icon that failed to refresh is a cosmetic problem,
+ * and turning it into a failed update would be out of all proportion.
+ */
+function refreshDesktopIcon(): void {
+  const assets = join(HOME, 'app', 'assets');
+
+  try {
+    if (process.platform === 'darwin') {
+      const bundle = join(homedir(), 'Applications', 'curlapi.app');
+      const source = join(assets, 'curlapi.icns');
+      if (!existsSync(bundle) || !existsSync(source)) return;
+
+      copyFileSync(source, join(bundle, 'Contents', 'Resources', 'curlapi.icns'));
+      // Finder caches an icon against the bundle's modification date, so a new
+      // file at the same path is not enough on its own to make it look again.
+      const now = new Date();
+      utimesSync(bundle, now, now);
+      return;
+    }
+
+    if (process.platform === 'linux') {
+      const theme = join(homedir(), '.local', 'share', 'icons', 'hicolor');
+      for (const size of [16, 32, 48, 64, 128, 256, 512]) {
+        const source = join(assets, `icon-${size}.png`);
+        const target = join(theme, `${size}x${size}`, 'apps', 'curlapi.png');
+        if (existsSync(source) && existsSync(join(theme, `${size}x${size}`, 'apps'))) {
+          copyFileSync(source, target);
+        }
+      }
+    }
+  } catch {
+    // See above: cosmetic.
+  }
+}
+
 export type ApplyProgress = (message: string) => void;
 
 /**
@@ -398,6 +452,8 @@ export async function applyUpdate(
   }
 
   rmSync(previous, { recursive: true, force: true });
+
+  refreshDesktopIcon();
 
   // Recorded so a later run can say what it came from, and so the desktop
   // launcher's log carries the history when something goes wrong after an

@@ -24,12 +24,16 @@ const ASSETS = join(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
 
 // --- palette --------------------------------------------------------------
 
-// The workspace's own dark surface and accent, from ui/src/styles.css. The icon
-// is the first thing anyone sees of the tool, and it should already look like
-// the thing it opens.
-const BACKDROP_TOP = [24, 27, 32];
-const BACKDROP_BOTTOM = [11, 12, 14];
-const ACCENT = [63, 216, 198];
+// A teal field with a white mark, rather than a bright glyph on near-black.
+//
+// The first version of this icon was a terminal prompt on a dark rounded square,
+// which is the exact visual language of PowerShell, Terminal and every console
+// app — so it read as "a shell" sitting among the real shells in a dock, instead
+// of as this tool. Inverting it to a saturated ground with a white glyph is what
+// separates an application icon from a terminal one.
+const BACKDROP_TOP = [78, 227, 208];
+const BACKDROP_BOTTOM = [12, 129, 119];
+const MARK = [255, 255, 255];
 
 // --- geometry -------------------------------------------------------------
 
@@ -69,11 +73,31 @@ function insideRoundedRect(x, y, left, top, right, bottom, radius) {
 }
 
 /**
- * The mark: a terminal prompt.
+ * Inside test for a convex polygon, given its corners in clockwise order.
  *
- * A chevron and a caret rule, which is what a shell looks like anywhere, and
- * what this tool hands you — commands you can paste. Coordinates are in a 0..1
- * square so one description renders at every size.
+ * A point is inside a convex shape when it is on the same side of every edge, so
+ * one cross product per edge decides it — no scanline conversion, and it drops
+ * straight into the same supersampled loop as everything else here.
+ */
+function insideConvexPolygon(x, y, corners) {
+  for (let i = 0; i < corners.length; i++) {
+    const [ax, ay] = corners[i];
+    const [bx, by] = corners[(i + 1) % corners.length];
+    if ((bx - ax) * (y - ay) - (by - ay) * (x - ax) < 0) return false;
+  }
+  return true;
+}
+
+/**
+ * The mark: many calls converging into one.
+ *
+ * Which is the whole of what this tool does, in both of its apps — a browser
+ * session's worth of traffic, or a document's worth of endpoints, comes in on
+ * the left and leaves as the one thing you actually wanted. Two nodes feeding a
+ * third says that in a shape that survives being drawn at sixteen pixels, and
+ * that no operating system already uses for a console.
+ *
+ * Coordinates are in a 0..1 square, so one description renders at every size.
  */
 function drawPixel(x, y) {
   if (!insideRoundedRect(x, y, 0.06, 0.06, 0.94, 0.94, 0.21)) return null;
@@ -85,15 +109,25 @@ function drawPixel(x, y) {
     BACKDROP_TOP[2] + (BACKDROP_BOTTOM[2] - BACKDROP_TOP[2]) * gradient,
   ];
 
-  const stroke = 0.062;
+  const stroke = 0.058;
+  const head = 0.115;
 
-  // The chevron, as two segments meeting at a point.
-  const upper = distanceToSegment(x, y, 0.29, 0.34, 0.49, 0.5);
-  const lower = distanceToSegment(x, y, 0.49, 0.5, 0.29, 0.66);
-  // The rule that follows it, sitting on the same baseline.
-  const rule = distanceToSegment(x, y, 0.58, 0.66, 0.75, 0.66);
+  // A request going out and a response coming back: the exchange this tool
+  // exists to capture, and the one glyph that says "API" without saying "shell".
+  // Two arrows, each a shaft plus two barbs meeting at its tip.
+  const request = Math.min(
+    distanceToSegment(x, y, 0.24, 0.375, 0.72, 0.375),
+    distanceToSegment(x, y, 0.72, 0.375, 0.72 - head, 0.375 - head),
+    distanceToSegment(x, y, 0.72, 0.375, 0.72 - head, 0.375 + head),
+  );
+  const response = Math.min(
+    distanceToSegment(x, y, 0.76, 0.625, 0.28, 0.625),
+    distanceToSegment(x, y, 0.28, 0.625, 0.28 + head, 0.625 - head),
+    distanceToSegment(x, y, 0.28, 0.625, 0.28 + head, 0.625 + head),
+  );
 
-  if (Math.min(upper, lower, rule) <= stroke) return ACCENT;
+  if (Math.min(request, response) <= stroke) return MARK;
+
   return backdrop;
 }
 

@@ -55,10 +55,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v$VERSION" \
-            --title "curlapi $VERSION" \
-            --generate-notes \
-            $(case "$VERSION" in *-*) echo --prerelease ;; esac) \
-            "dist/curlapi-$VERSION-app.tar.gz" \
-            "dist/curlapi-$VERSION-app.zip" \
-            "dist/SHA256SUMS"
+          ASSETS="dist/curlapi-$VERSION-app.tar.gz dist/curlapi-$VERSION-app.zip dist/SHA256SUMS"
+
+          # A hyphen in the version means a prerelease: 0.2.0-beta.4 is a beta,
+          # 0.2.0 is not. Computed here rather than inline, because a `case`
+          # inside a command substitution inside a continued argument list is
+          # legal and still something no one should have to read twice.
+          PRERELEASE=""
+          case "$VERSION" in *-*) PRERELEASE="--prerelease" ;; esac
+
+          # Re-pushing a tag re-runs this job, and `gh release create` fails when
+          # the release is already there — which turned an ordinary tag move into
+          # three red failures for releases that were perfectly fine. Uploading
+          # over the existing one is both the honest outcome and a re-runnable one.
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists — replacing its assets."
+            gh release upload "v$VERSION" $ASSETS --clobber
+          else
+            gh release create "v$VERSION" \
+              --title "curlapi $VERSION" \
+              --generate-notes \
+              $PRERELEASE \
+              $ASSETS
+          fi
