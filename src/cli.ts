@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import './suppress-warnings.ts';
-import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startShell } from './platform/shell.ts';
+import { openWindow, openInBrowser } from './desktop/window.ts';
+import { findRunningWorkspace, watchForClose } from './desktop/session.ts';
 import { APPS } from './platform/registry.ts';
 import type { CurlExtractorApp } from './apps/curl-extractor/index.ts';
 import { CURL_EXTRACTOR_ID } from './apps/curl-extractor/manifest.ts';
@@ -14,6 +15,7 @@ import { buildCurl } from './curl/build.ts';
 import { writeDefaultConfig } from './filter/config.ts';
 import { DEFAULT_CURL_OPTIONS, type CurlOptions } from './types.ts';
 import { DB_PATH, EXPORT_DIR, ensureDirs, FILTERS_PATH, HOME, VERSION } from './paths.ts';
+import { applyUpdate, checkForUpdate, checkForUpdateDaily } from './update/index.ts';
 
 // Deferred on purpose — see suppress-warnings.ts. A static import here would
 // load node:sqlite during module linking, before the warning filter is in place.
@@ -48,20 +50,6 @@ function parseArgs(argv: string[]): Args {
   return { command, positional, flags };
 }
 
-function openInBrowser(url: string): void {
-  const [command, args] =
-    process.platform === 'darwin'
-      ? ['open', [url]]
-      : process.platform === 'win32'
-        ? ['cmd', ['/c', 'start', '', url]]
-        : ['xdg-open', [url]];
-  try {
-    spawn(command, args, { stdio: 'ignore', detached: true }).unref();
-  } catch {
-    // Printing the URL is the fallback, and it always happens anyway.
-  }
-}
-
 function curlOptionsFromFlags(flags: Record<string, string | boolean>): CurlOptions {
   return {
     ...DEFAULT_CURL_OPTIONS,
@@ -76,6 +64,7 @@ const HELP = `curlapi — a local workspace of small API utilities  (beta)
 
 Usage
   curlapi                      Open the dashboard. Nothing is launched until you pick an app
+  curlapi app                  Open the workspace as its own window (what the desktop icon runs)
   curlapi start [url]          Open the dashboard and begin a capture right away
   curlapi attach [--port N]    Capture from a Chrome already started with --remote-debugging-port
   curlapi ui [--session ID]    Open the dashboard on a stored capture, without recording
@@ -83,6 +72,7 @@ Usage
   curlapi prune                Discard captures nobody documented or approved
   curlapi export <format>      Write curls.sh, a Postman collection, or raw JSON
   curlapi config               Write the default filter rules so they can be edited
+  curlapi update [--check]     Install the newest release, or only report whether there is one
 
 Apps
 ${APPS.map(
@@ -105,6 +95,7 @@ Options
   --shell SHELL       posix (default) or powershell
   --headless          Run Chrome without a window
   --no-open           Do not open a browser window at the workspace
+  --version           Print the installed version
 
 Everything is stored under ${HOME}
 `;
@@ -118,8 +109,22 @@ Everything is stored under ${HOME}
  */
 async function runShell(args: Args): Promise<void> {
   ensureDirs();
-  const store = new Store();
   const port = Number(args.flags['ui-port'] ?? 7317);
+
+  // Launched from an icon, where clicking twice is normal and must not be an
+  // error. A workspace already on this port is shown rather than duplicated —
+  // and it owns the database, so a second one could not open it anyway.
+  const desktop = args.command === 'app';
+  if (desktop) {
+    const running = await findRunningWorkspace(port);
+    if (running) {
+      openWindow(running);
+      console.log(`Workspace already running at ${running} — opened a window on it.`);
+      return;
+    }
+  }
+
+  const store = new Store();
   const shell = await startShell({ store, port, modules: APPS });
 
   const extractor = shell.app<CurlExtractorApp>(CURL_EXTRACTOR_ID);
@@ -169,12 +174,26 @@ async function runShell(args: Args): Promise<void> {
   console.log(`  Version     ${VERSION} — beta, so check what it produces`);
   console.log('');
   console.log(
-    autoCapture
-      ? 'Browse the site as you normally would. Press Ctrl-C when finished.'
-      : 'Pick a utility from the dashboard. Press Ctrl-C to close the workspace.',
+    desktop
+      ? 'Close the window to quit.'
+      : autoCapture
+        ? 'Browse the site as you normally would. Press Ctrl-C when finished.'
+        : 'Pick a utility from the dashboard. Press Ctrl-C to close the workspace.',
   );
 
-  if (args.flags['no-open'] !== true) openInBrowser(landing);
+  // Deliberately not awaited: whether a newer release exists has no bearing on
+  // whether this one can open, and nobody should wait on GitHub to see a
+  // dashboard that runs entirely on their own machine.
+  void checkForUpdateDaily().then((status) => {
+    if (status?.available) {
+      console.log(`\n  curlapi ${status.latest} is available — run \`curlapi update\`.`);
+    }
+  });
+
+  if (args.flags['no-open'] !== true) {
+    if (desktop) openWindow(landing);
+    else openInBrowser(landing);
+  }
 
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
@@ -212,6 +231,11 @@ async function runShell(args: Args): Promise<void> {
 
   process.on('SIGINT', () => void shutdown());
   process.on('SIGTERM', () => void shutdown());
+
+  // There is no terminal behind a desktop launch, so closing the window is the
+  // only quit gesture available. It runs the same shutdown Ctrl-C would, which
+  // is what finalises a capture that was still recording.
+  if (desktop) watchForClose(shell, () => void shutdown());
 }
 
 function runList(): void {
@@ -355,11 +379,60 @@ function runExport(args: Args): void {
   }
 }
 
+/**
+ * Installs the newest release, or reports on one.
+ *
+ * Deliberately its own short-lived process rather than something the workspace
+ * does to itself while running: the files being replaced are the ones this
+ * program is executing from, and a module imported lazily after the swap would
+ * be read from the new version while everything already loaded came from the
+ * old one.
+ */
+async function runUpdate(args: Args): Promise<void> {
+  console.log('Checking for a newer release…');
+  const status = await checkForUpdate();
+
+  if (!status.latest) {
+    console.error(status.checkError ?? 'Could not work out whether there is a newer release.');
+    process.exit(1);
+  }
+
+  if (!status.available) {
+    console.log(`curlapi ${status.current} is the newest release.`);
+    return;
+  }
+
+  console.log(`curlapi ${status.latest} is available — this is ${status.current}.`);
+
+  if (args.flags['check'] === true) {
+    console.log('Run `curlapi update` to install it.');
+    return;
+  }
+
+  if (!status.updatable) {
+    console.error('');
+    console.error(status.reason);
+    process.exit(1);
+  }
+
+  try {
+    await applyUpdate(status.release!, (message) => console.log(`  ${message}…`));
+  } catch (err) {
+    console.error('');
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  console.log('');
+  console.log(`Updated to ${status.latest}. Reopen curlapi to run it.`);
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   switch (args.command) {
     case 'serve':
+    case 'app':
     case 'start':
     case 'attach':
     case 'ui':
@@ -376,6 +449,14 @@ async function main(): Promise<void> {
       return;
     case 'config':
       console.log(`Wrote default filter rules to ${writeDefaultConfig()}`);
+      return;
+    case 'update':
+      await runUpdate(args);
+      return;
+    case 'version':
+    case '--version':
+    case '-v':
+      console.log(VERSION);
       return;
     default:
       console.log(HELP);

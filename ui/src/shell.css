@@ -664,3 +664,33 @@
   justify-content: center;
   color: var(--muted);
 }
+
+/* Shown only when there is actually a newer release, so it can afford to be a
+   little louder than the rest of the rail without becoming noise. */
+.rail-update {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.rail-update:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.rail-update:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+/* Not a button once it has been applied: the only thing left to do is reopen
+   the app, and nothing here can do that for you. */
+span.rail-update {
+  cursor: default;
+}

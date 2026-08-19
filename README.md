@@ -43,6 +43,7 @@ runnable requests — without either one leaving your machine.
 - [What this replaces](#what-this-replaces)
 - [Requirements](#requirements)
 - [Install](#install)
+- [Updating](#updating)
 - [Quick start](#quick-start)
 - [Utilities](#utilities)
   - [cURL Extractor](#curl-extractor)
@@ -80,9 +81,9 @@ per document, repeatedly. curlapi reads the document instead.
 
 | | |
 |---|---|
-| **Node** | 24 or newer — it runs the TypeScript directly and ships SQLite in the standard library |
 | **Browser** | Chrome, Chromium, Edge or Brave, at a standard install location |
-| **OS** | macOS, Windows or Linux |
+| **OS** | macOS, Windows or Linux — 64-bit |
+| **Node** | 24 or newer, **but you do not need to install it** — see below |
 
 There is **no build step for the tool itself and no native modules**, so there is
 nothing to compile per platform. If your browser lives somewhere unusual, point at
@@ -90,28 +91,78 @@ it with `CURLAPI_CHROME=/path/to/browser`.
 
 ## Install
 
+**macOS and Linux**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/itskundan-01/curlapi/main/scripts/install.sh | sh
+```
+
+**Windows**
+
+```powershell
+irm https://raw.githubusercontent.com/itskundan-01/curlapi/main/scripts/install.ps1 | iex
+```
+
+That gives you both a `curlapi` command and a real application you can launch
+from Spotlight, the Start Menu or your applications menu — it opens the workspace
+in its own window, with no tab strip and no address bar.
+
+**If you already have Node 24**, the whole install is about 3 MB and takes a
+second. **If you have no Node at all**, the installer says so and fetches an
+official runtime for you — one 30–50 MB download, once, and nothing else on the
+machine changes. Either way it needs no administrator, touches nothing outside
+`~/.curlapi`, and can be undone by deleting that directory (plus the shortcut).
+
+<details>
+<summary>Why a terminal command rather than a download link</summary>
+
+curlapi is not code-signed, because a signing certificate costs money every year
+and this is a free tool. That matters only for files a **browser** downloads:
+macOS and Windows both flag those, and you would have to click through a warning.
+
+Files fetched by `curl` and `Invoke-WebRequest` carry no such flag, so the
+command above installs with no warnings at all. It is the same software either
+way — this route just skips a dialog that exists to protect you from a risk you
+are not taking.
+
+Every release also publishes `SHA256SUMS`, and both installers verify what they
+download against it before writing anything.
+</details>
+
+### From source, or via npm
+
+If you already work in Node and would rather manage it yourself:
+
 ```bash
 git clone https://github.com/itskundan-01/curlapi.git
 cd curlapi
 npm install
-npm run build:ui
+npm run build:ui     # compiles the review UI into ui/dist — the one build step
+npm link             # optional: puts `curlapi` on your PATH
 ```
 
-That's the whole install. `npm run build:ui` compiles the review UI into
-`ui/dist/`; it is the one build step, and it only has to run once.
-
-To get a `curlapi` command on your PATH instead of typing `node src/cli.ts`:
+## Updating
 
 ```bash
-npm link
+curlapi update           # install the newest release
+curlapi update --check   # only say whether there is one
 ```
+
+An update downloads **under a megabyte** — the application only, not the runtime
+and certainly not a browser — verifies its checksum, and swaps it into place. The
+workspace also checks quietly on startup and tells you when there is something
+newer.
+
+A copy installed from source or through npm is left alone: it will tell you a
+release exists, and let `git pull` or `npm update` do the work, rather than
+overwriting files another tool believes it owns.
 
 ## Quick start
 
 ```bash
-node src/cli.ts
-# or, after `npm link`:
 curlapi
+# or, from a source checkout:
+node src/cli.ts
 ```
 
 The workspace opens at <http://127.0.0.1:7317> on a dashboard of utilities.
@@ -239,6 +290,7 @@ means writing the module and adding a line to `src/platform/registry.ts`.
 
 ```
 curlapi                      Open the dashboard. Nothing launches until you pick an app
+curlapi app                  Open the workspace in its own window (what the desktop icon runs)
 curlapi start [url]          Open the dashboard and begin a capture right away
 curlapi attach [--port N]    Capture from a browser you started yourself
 curlapi ui [--session ID]    Open the workspace on a stored session, without recording
@@ -246,6 +298,8 @@ curlapi ls                   List stored sessions
 curlapi prune                Discard captures nobody documented or approved
 curlapi export <format>      script | postman | json | doc
 curlapi config               Write the default filter rules so you can edit them
+curlapi update [--check]     Install the newest release, or only report whether there is one
+curlapi version              Print the installed version
 ```
 
 | Option | Effect |
@@ -262,6 +316,11 @@ curlapi config               Write the default filter rules so you can edit them
 | `--shell SHELL` | `posix` (default) or `powershell` |
 | `--headless` | Run the browser without a window |
 | `--no-open` | Do not open a browser window at the workspace |
+| `--check` | For `update`: report whether a release exists without installing it |
+
+Two environment variables are worth knowing: `CURLAPI_CHROME` points at a browser
+in an unusual location, and `CURLAPI_NO_UPDATE_CHECK=1` stops the once-a-day
+check for new releases.
 
 ## The review UI
 

@@ -17,3 +17,12 @@ session.json
 # Handed-over API documents used for parser development. They carry real keys
 # and credentials, so they stay local.
 Doc samples/
+
+# Icons are drawn by scripts/make-icons.mjs, so the bytes are a build output
+# rather than a source. `npm run build:icons` recreates them exactly.
+assets/*.png
+assets/*.icns
+assets/*.ico
+
+# Release payloads, built by scripts/build-payload.sh
+dist/

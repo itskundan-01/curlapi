@@ -37,10 +37,11 @@
   "scripts": {
     "start": "node src/cli.ts start",
     "build:ui": "vite build",
+    "build:icons": "node scripts/make-icons.mjs",
     "dev:ui": "vite",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "prepack": "npm run build:ui"
+    "prepack": "npm run build:icons && npm run build:ui"
   },
   "dependencies": {
     "chrome-remote-interface": "^0.33.3",
@@ -61,6 +62,8 @@
     "bin",
     "src",
     "ui/dist",
+    "assets",
+    "scripts/make-icons.mjs",
     "README.md",
     "SOP.md",
     "DESIGN.md",

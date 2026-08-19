@@ -30,3 +30,194 @@ jobs:
       - run: npm run build:ui
 
       - run: npm test
+
+  # The installers are shell and PowerShell, so nothing in the test suite covers
+  # them. They are also the only thing most users will ever run, and they are the
+  # hardest thing to test by hand — three operating systems, and a Windows path
+  # that cannot be exercised from a Mac at all. So they are run for real here, on
+  # each platform, against a payload built from the commit under test.
+  installer-posix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build the payload
+        run: |
+          sh scripts/build-payload.sh
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+
+      - name: Install, using the Node already on the machine
+        run: |
+          CURLAPI_HOME="$HOME/.curlapi" \
+          CURLAPI_INSTALL_FROM="$PWD/dist/curlapi-$VERSION-app.tar.gz" \
+            sh scripts/install.sh
+
+      - name: The installed command runs and reports its version
+        run: |
+          INSTALLED=$("$HOME/.curlapi/bin/curlapi" version)
+          echo "installed $INSTALLED"
+          [ "$INSTALLED" = "$VERSION" ] || { echo "expected $VERSION" >&2; exit 1; }
+
+      # Started and checked in one step on purpose: a background process left
+      # running across step boundaries is at the mercy of how the runner cleans
+      # up, and a test that sometimes finds no server is worse than no test.
+      - name: The workspace serves, and a second launch finds it
+        run: |
+          "$HOME/.curlapi/bin/curlapi" app --no-open --ui-port 7317 &
+          SERVER=$!
+
+          for i in $(seq 1 30); do
+            sleep 1
+            curl -fsS --max-time 2 http://127.0.0.1:7317/api/apps >/dev/null 2>&1 && break
+          done
+
+          curl -fsS --max-time 5 http://127.0.0.1:7317/api/apps | head -c 80
+          echo ""
+          curl -fsS --max-time 5 http://127.0.0.1:7317/ | grep -q "<title>curlapi</title>"
+          echo "the UI is being served"
+
+          OUT=$("$HOME/.curlapi/bin/curlapi" app --no-open --ui-port 7317 2>&1)
+          echo "$OUT"
+          echo "$OUT" | grep -q "already running" || {
+            echo "expected the second launch to find the first" >&2
+            kill $SERVER 2>/dev/null
+            exit 1
+          }
+
+          kill $SERVER 2>/dev/null || true
+
+      - name: The app is registered where the desktop expects it
+        run: |
+          if [ "$(uname -s)" = "Darwin" ]; then
+            test -f "$HOME/Applications/curlapi.app/Contents/MacOS/curlapi"
+            test -f "$HOME/Applications/curlapi.app/Contents/Resources/curlapi.icns"
+            echo "the .app bundle is in place"
+          else
+            test -f "$HOME/.local/share/applications/curlapi.desktop"
+            test -f "$HOME/.local/share/icons/hicolor/256x256/apps/curlapi.png"
+            grep -q "^Exec=.*curlapi app$" "$HOME/.local/share/applications/curlapi.desktop"
+            echo "the .desktop entry is in place"
+          fi
+
+  # The path that matters for anyone who has never installed Node: the installer
+  # has to notice there is none and fetch one. Run with a scrubbed PATH so the
+  # runner's own Node is genuinely invisible.
+  installer-without-node:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build the payload
+        run: |
+          sh scripts/build-payload.sh
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+
+      - name: Install with no Node on PATH
+        run: |
+          mkdir -p "$HOME/bare"
+          env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+            HOME="$HOME/bare" \
+            CURLAPI_HOME="$HOME/bare/.curlapi" \
+            CURLAPI_INSTALL_FROM="$PWD/dist/curlapi-$VERSION-app.tar.gz" \
+            VERSION="$VERSION" \
+            sh scripts/install.sh
+
+      - name: It fetched a runtime and the tool runs without any system Node
+        run: |
+          test -x "$HOME/bare/.curlapi/runtime/bin/node"
+          env -i PATH=/usr/bin:/bin HOME="$HOME/bare" \
+            CURLAPI_HOME="$HOME/bare/.curlapi" \
+            "$HOME/bare/.curlapi/bin/curlapi" version
+
+  installer-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build the payload
+        shell: bash
+        run: |
+          sh scripts/build-payload.sh
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+
+      # `shell: powershell` is Windows PowerShell 5.1, which is what ships in the
+      # box and what the installer is written against. Running it under pwsh 7
+      # would pass while leaving the version most users have untested.
+      - name: Install
+        shell: powershell
+        run: |
+          $env:CURLAPI_INSTALL_FROM = "$PWD\dist\curlapi-$env:VERSION-app.zip"
+          .\scripts\install.ps1
+
+      - name: The installed command runs and reports its version
+        shell: powershell
+        run: |
+          $installed = & "$env:USERPROFILE\.curlapi\bin\curlapi.cmd" version
+          Write-Host "installed $installed"
+          if ($installed -ne $env:VERSION) { throw "expected $env:VERSION" }
+
+      - name: The Start Menu shortcut and its launcher exist
+        shell: powershell
+        run: |
+          $link = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\curlapi.lnk'
+          if (-not (Test-Path $link)) { throw "no Start Menu shortcut at $link" }
+          if (-not (Test-Path "$env:USERPROFILE\.curlapi\bin\curlapi-app.vbs")) { throw "no launcher" }
+
+          # The shortcut has to point at the hidden-window launcher, or clicking
+          # it flashes a console before the workspace appears.
+          $shell = New-Object -ComObject WScript.Shell
+          $shortcut = $shell.CreateShortcut($link)
+          Write-Host "target:    $($shortcut.TargetPath)"
+          Write-Host "arguments: $($shortcut.Arguments)"
+          if ($shortcut.TargetPath -notmatch 'wscript\.exe$') { throw "shortcut does not use wscript" }
+          if ($shortcut.Arguments -notmatch 'curlapi-app\.vbs') { throw "shortcut does not run the launcher" }
+
+      - name: The workspace serves, and a second launch finds it
+        shell: powershell
+        run: |
+          $server = Start-Process -FilePath "$env:USERPROFILE\.curlapi\bin\curlapi.cmd" `
+            -ArgumentList 'app','--no-open','--ui-port','7317' -WindowStyle Hidden -PassThru
+
+          $ok = $false
+          foreach ($i in 1..30) {
+            Start-Sleep -Seconds 1
+            try {
+              $response = Invoke-WebRequest -Uri 'http://127.0.0.1:7317/api/apps' -UseBasicParsing -TimeoutSec 2
+              if ($response.StatusCode -eq 200) { $ok = $true; break }
+            } catch { }
+          }
+          if (-not $ok) { throw "the workspace never answered on 7317" }
+          Write-Host "the workspace is serving"
+
+          $out = & "$env:USERPROFILE\.curlapi\bin\curlapi.cmd" app --no-open --ui-port 7317 2>&1 | Out-String
+          Write-Host $out
+          Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          if ($out -notmatch 'already running') { throw "expected the second launch to find the first" }

@@ -3,7 +3,7 @@ import { Dashboard } from './Dashboard.tsx';
 import { findUiApp } from './apps.tsx';
 import { LiveProvider } from './live.tsx';
 import { navigate, useRoute } from './router.ts';
-import { shellApi, type AppManifest } from './api.ts';
+import { shellApi, type AppManifest, type UpdateStatus } from './api.ts';
 import { useTheme } from './theme.ts';
 import { AppIcon, IconTheme, Wordmark } from './icons.tsx';
 
@@ -92,6 +92,8 @@ function ShellFrame() {
           </nav>
         )}
 
+        <UpdateChip />
+
         <button
           className="btn ghost icon rail-theme"
           title="Switch theme"
@@ -108,6 +110,71 @@ function ShellFrame() {
         {route.name === 'app' && !ui && <UnknownApp id={route.id} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * Says when there is a newer release, and installs it.
+ *
+ * Renders nothing at all in the normal case, which is most of the time — a
+ * permanent "you are up to date" badge would be chrome earning its space about
+ * twice a year.
+ *
+ * The install is offered only where it can actually be done. A copy running from
+ * a source checkout or from npm shows the version and leaves it there, because
+ * replacing those files is the other tool's job and doing it here would leave its
+ * metadata describing something that is no longer on disk.
+ */
+function UpdateChip() {
+  const [status, setStatus] = useState<UpdateStatus | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [installed, setInstalled] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    void shellApi
+      .update()
+      .then(setStatus)
+      .catch(() => undefined);
+  }, []);
+
+  if (installed) {
+    return (
+      <span className="rail-update done" title="The new version runs once curlapi is reopened">
+        Updated to {installed} — reopen curlapi
+      </span>
+    );
+  }
+
+  if (!status?.available) return null;
+
+  if (!status.updatable) {
+    return (
+      <span className="rail-update" title={status.reason ?? undefined}>
+        {status.latest} available
+      </span>
+    );
+  }
+
+  const install = (): void => {
+    setInstalling(true);
+    setFailed(null);
+    void shellApi
+      .installUpdate()
+      .then((result) => setInstalled(result.installed))
+      .catch((err: unknown) => setFailed(err instanceof Error ? err.message : String(err)))
+      .finally(() => setInstalling(false));
+  };
+
+  return (
+    <button
+      className="rail-update"
+      onClick={install}
+      disabled={installing}
+      title={failed ?? `Install curlapi ${status.latest}, replacing ${status.current}`}
+    >
+      {installing ? 'Updating…' : failed ? 'Update failed — retry' : `Update to ${status.latest}`}
+    </button>
   );
 }
 
