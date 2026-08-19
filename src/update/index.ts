@@ -108,8 +108,43 @@ type GitHubRelease = {
   tag_name?: string;
   body?: string;
   published_at?: string;
+  draft?: boolean;
+  prerelease?: boolean;
   assets?: GitHubAsset[];
 };
+
+/**
+ * Picks the release to offer, out of everything published.
+ *
+ * `/releases/latest` would be the obvious call and is the wrong one: it omits
+ * prereleases entirely, so a project whose only releases are betas looks to it
+ * like a project with no releases at all.
+ *
+ * Reading the whole list instead means deciding which of them counts. A stable
+ * install is offered stable releases only — publishing 1.1.0-beta.1 must not
+ * push everyone on 1.0.0 onto a beta. Someone already running a prerelease has
+ * opted into that track and is offered whatever is newest. And before the first
+ * stable release exists, prereleases are all there is, so they are what gets
+ * offered to anyone.
+ */
+export function selectRelease(
+  releases: GitHubRelease[],
+  currentVersion: string,
+): GitHubRelease | null {
+  const published = releases.filter((release) => !release.draft && release.tag_name);
+  if (published.length === 0) return null;
+
+  const stable = published.filter((release) => !release.prerelease);
+  const onPrerelease = currentVersion.includes('-');
+  const pool = onPrerelease || stable.length === 0 ? published : stable;
+  if (pool.length === 0) return null;
+
+  // GitHub returns these newest-first by creation date, which is not the same as
+  // highest version — a patch to an old line can be published after a new minor.
+  return pool.reduce((newest, candidate) =>
+    compareVersions(candidate.tag_name ?? '', newest.tag_name ?? '') > 0 ? candidate : newest,
+  );
+}
 
 /**
  * Asks GitHub what the newest release is.
@@ -133,12 +168,12 @@ export async function checkForUpdate(timeoutMs = 6000): Promise<UpdateStatus> {
   };
 
   try {
-    const response = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    const response = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=30`, {
       headers: { accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.status === 404) {
-      return { ...base, checkError: `${REPO} has not published any releases yet.` };
+      return { ...base, checkError: `${REPO} has no releases page.` };
     }
     if (!response.ok) {
       return {
@@ -150,7 +185,11 @@ export async function checkForUpdate(timeoutMs = 6000): Promise<UpdateStatus> {
       };
     }
 
-    const body = (await response.json()) as GitHubRelease;
+    const body = selectRelease((await response.json()) as GitHubRelease[], VERSION);
+    if (!body) {
+      return { ...base, checkError: `${REPO} has not published any releases yet.` };
+    }
+
     const latest = (body.tag_name ?? '').replace(/^v/, '');
     if (!latest) return { ...base, checkError: 'The newest release has no version tag.' };
 

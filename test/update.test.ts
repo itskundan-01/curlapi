@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, existsSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateRawSync } from 'node:zlib';
-import { compareVersions, expectedChecksumFor } from '../src/update/index.ts';
+import { compareVersions, expectedChecksumFor, selectRelease } from '../src/update/index.ts';
 import { extractZip, looksLikeCurlapiPayload, zipEntryNames } from '../src/update/zip.ts';
 
 // --- version ordering -----------------------------------------------------
@@ -33,6 +33,47 @@ test('orders prerelease identifiers numerically, not as text', () => {
   assert.equal(compareVersions('0.2.0-alpha.1', '0.2.0-beta.1') < 0, true);
   // More identifiers wins when the shared ones are equal.
   assert.equal(compareVersions('0.2.0-beta.1', '0.2.0-beta') > 0, true);
+});
+
+// --- which release to offer -----------------------------------------------
+
+const RELEASES = [
+  { tag_name: 'v0.3.0-beta.1', prerelease: true },
+  { tag_name: 'v0.2.0', prerelease: false },
+  { tag_name: 'v0.1.1', prerelease: false },
+];
+
+test('offers a stable install only stable releases', () => {
+  // Publishing a beta must not drag everyone on the stable line onto it.
+  assert.equal(selectRelease(RELEASES, '0.1.1')?.tag_name, 'v0.2.0');
+});
+
+test('offers a prerelease install the newest of anything', () => {
+  // Already on a beta is already opted in.
+  assert.equal(selectRelease(RELEASES, '0.2.0-beta.1')?.tag_name, 'v0.3.0-beta.1');
+});
+
+test('offers prereleases when nothing stable has shipped yet', () => {
+  // The case that broke the first release: /releases/latest omits prereleases,
+  // so a project whose only release is a beta looked like it had none.
+  const betasOnly = [{ tag_name: 'v0.2.0-beta.1', prerelease: true }];
+  assert.equal(selectRelease(betasOnly, '0.1.1')?.tag_name, 'v0.2.0-beta.1');
+});
+
+test('ignores drafts, and an empty listing', () => {
+  const withDraft = [{ tag_name: 'v9.9.9', prerelease: false, draft: true }, ...RELEASES];
+  assert.equal(selectRelease(withDraft, '0.1.1')?.tag_name, 'v0.2.0');
+  assert.equal(selectRelease([], '0.1.1'), null);
+});
+
+test('picks the highest version, not whatever was published last', () => {
+  // A patch to an old line can be published after a newer minor, and GitHub
+  // returns these newest-first by date rather than by version.
+  const outOfOrder = [
+    { tag_name: 'v1.0.1', prerelease: false },
+    { tag_name: 'v1.2.0', prerelease: false },
+  ];
+  assert.equal(selectRelease(outOfOrder, '1.0.0')?.tag_name, 'v1.2.0');
 });
 
 // --- checksums ------------------------------------------------------------

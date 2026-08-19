@@ -131,9 +131,11 @@ resolve_version() {
     VERSION="$CURLAPI_VERSION"
     return
   fi
-  # The releases API rather than a "latest" redirect, because this repo publishes
-  # prereleases and the tag has to be read rather than guessed.
-  VERSION=$(fetch_stdout "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+  # The full releases list, not /releases/latest: that endpoint deliberately
+  # skips prereleases, so while this project is in beta it reports nothing at all
+  # and the install fails with "no releases" against a repo that plainly has one.
+  # The list is newest-first, so the first tag is the one to install.
+  VERSION=$(fetch_stdout "https://api.github.com/repos/$REPO/releases" 2>/dev/null \
     | grep -o '"tag_name"[^,]*' | head -1 | cut -d'"' -f4 | sed 's/^v//') || VERSION=""
   [ -n "$VERSION" ] || die "Could not work out the latest curlapi version from GitHub.
 Set one explicitly:  CURLAPI_VERSION=0.2.0-beta.1 sh install.sh"

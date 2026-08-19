@@ -108,12 +108,15 @@ function Assert-Checksum($file, $expected, $label) {
 
 function Resolve-Version {
     if ($env:CURLAPI_VERSION) { return $env:CURLAPI_VERSION }
-    $json = Get-Text "https://api.github.com/repos/$Repo/releases/latest"
+    # The full list, not /releases/latest: that endpoint skips prereleases, so
+    # during beta it reports nothing for a repo that plainly has a release. The
+    # list is newest-first, so the first tag is the one to install.
+    $json = Get-Text "https://api.github.com/repos/$Repo/releases"
     if (-not $json) {
         Stop-Install "Could not work out the latest curlapi version from GitHub.`nSet one explicitly:  `$env:CURLAPI_VERSION='0.2.0-beta.1'; irm ... | iex"
     }
     if ($json -match '"tag_name"\s*:\s*"v?([^"]+)"') { return $Matches[1] }
-    Stop-Install "GitHub's release listing did not contain a tag name."
+    Stop-Install "GitHub published no releases for $Repo yet."
 }
 
 function Install-App {

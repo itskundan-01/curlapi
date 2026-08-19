@@ -37,6 +37,10 @@ echo "→ Collecting runtime dependencies"
 cp package.json package-lock.json "$STAGE/"
 (cd "$STAGE" && npm ci --omit=dev --silent --no-audit --no-fund)
 rm -f "$STAGE/package-lock.json"
+# Symlinks to dependency executables, none of which this tool ever runs — it
+# imports its two dependencies as libraries. Dropping them keeps the tar and zip
+# payloads identical, since a zip cannot carry a symlink the same way.
+rm -rf "$STAGE/node_modules/.bin"
 
 echo "→ Copying the application"
 cp -R bin src ui "$STAGE/"
@@ -51,11 +55,10 @@ cp README.md LICENSE "$STAGE/"
 echo "→ Packing"
 tar --format=ustar -czf "$ARCHIVE" -C "$STAGE" .
 
-# The same payload as a zip, for Windows. PowerShell expands a zip with a
-# built-in cmdlet; reaching for tar there would rest on a bundled bsdtar that
-# only recent Windows has, to no benefit.
-command -v zip >/dev/null 2>&1 || { echo "zip is not installed, and the Windows payload needs it" >&2; exit 1; }
-(cd "$STAGE" && zip -q -r -X "../../$ZIP" .)
+# The same payload as a zip, for Windows, written by Node rather than by `zip` —
+# Git Bash on a Windows runner has no `zip`, which is precisely where this needs
+# to work. See scripts/make-zip.mjs.
+node scripts/make-zip.mjs "$STAGE" "$ZIP" >/dev/null
 
 (cd "$OUT" && {
   if command -v sha256sum >/dev/null 2>&1; then
