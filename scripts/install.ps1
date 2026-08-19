@@ -172,12 +172,25 @@ function Install-App {
 # --- the runtime ----------------------------------------------------------
 
 function Get-NodeMajor($nodeExe) {
-    # Asking Node itself, rather than parsing a version string that may carry a
-    # distribution suffix.
     try {
-        $out = & $nodeExe -p 'process.versions.node.split(".")[0]' 2>$null
-        return [int]$out
-    } catch { return 0 }
+        # `--version`, not `-p` with a JS expression. Windows PowerShell does not
+        # escape embedded double quotes when it hands arguments to a native
+        # executable, so `process.versions.node.split(".")[0]` arrives with its
+        # quotes stripped, node exits on a syntax error, and a machine with a
+        # perfectly good Node 24 is told it has none and made to download one.
+        $out = & $nodeExe --version 2>$null
+
+        # The probe's exit code is ours to interpret. Left set, it is still there
+        # at the end of the script, where any caller that checks $LASTEXITCODE —
+        # CI does — reads a successful install as a failed one.
+        $global:LASTEXITCODE = 0
+
+        if ($out -match 'v?(\d+)\.') { return [int]$Matches[1] }
+        return 0
+    } catch {
+        $global:LASTEXITCODE = 0
+        return 0
+    }
 }
 
 function Install-Runtime {

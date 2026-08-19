@@ -140,6 +140,16 @@ export class Recorder {
   #seq: number;
   #unsubscribe: (() => void) | null = null;
   #paused = false;
+  /**
+   * Set once `stop` has finished, after which nothing may touch the store.
+   *
+   * Unsubscribing removes the listener but cannot cancel a `#handleEvent` that
+   * is already partway through its awaits. One of those resuming after the
+   * capture has been torn down would write to a database the caller has since
+   * closed — which surfaces as an unhandled rejection during shutdown, long
+   * after the line that caused it.
+   */
+  #stopped = false;
 
   constructor(options: RecorderOptions) {
     this.#connection = options.connection;
@@ -197,9 +207,14 @@ export class Recorder {
     for (const pending of [...this.#pending.values()]) {
       if (!pending.finalized) await this.#finalize(pending);
     }
+    // Set last, not first: the loop above is the legitimate final write, and it
+    // has to happen while the store is still open. Everything after this point
+    // is an event that arrived too late to belong to the capture.
+    this.#stopped = true;
   }
 
   async #handleEvent(event: CdpEvent): Promise<void> {
+    if (this.#stopped) return;
     switch (event.method) {
       case 'Target.attachedToTarget':
         await this.#onTargetAttached(event);
@@ -697,6 +712,10 @@ export class Recorder {
   }
 
   async #finalize(pending: Pending): Promise<void> {
+    // The guard has to be here as well as in #handleEvent: a handler that was
+    // already suspended mid-await when the capture stopped resumes and lands
+    // straight here, having passed the entry check long ago.
+    if (this.#stopped) return;
     if (pending.finalized) return;
     // Claimed before the await so a second terminal event cannot re-enter, but
     // the entry stays in #pending so late extra-info events still find it.
